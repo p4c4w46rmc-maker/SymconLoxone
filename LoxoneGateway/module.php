@@ -20,6 +20,8 @@ class LoxoneGateway extends IPSModule
         $this->RegisterVariableString('ProjectName', 'Projektname', '', 20);
         $this->RegisterVariableString('SerialNumber', 'Seriennummer', '', 30);
         $this->RegisterVariableString('CurrentUser', 'Benutzer', '', 40);
+        $this->RegisterVariableInteger('ImportedControls', 'Importierte Controls', '', 50);
+        $this->RegisterVariableInteger('ImportedStates', 'Importierte States', '', 60);
     }
 
     public function ApplyChanges()
@@ -61,10 +63,9 @@ class LoxoneGateway extends IPSModule
     public function ReadMiniserver()
     {
         try {
-            $api = $this->CreateApi();
-            $data = $api->getLoxApp3();
-
+            $data = $this->CreateApi()->getLoxApp3();
             $msInfo = $data['msInfo'] ?? [];
+
             $projectName = (string) ($msInfo['projectName'] ?? '');
             $serialNumber = (string) ($msInfo['serialNr'] ?? '');
             $currentUser = (string) ($msInfo['currentUser']['name'] ?? '');
@@ -73,9 +74,9 @@ class LoxoneGateway extends IPSModule
             $this->SetValue('SerialNumber', $serialNumber);
             $this->SetValue('CurrentUser', $currentUser);
 
-            $rooms = isset($data['rooms']) && is_array($data['rooms']) ? count($data['rooms']) : 0;
-            $cats = isset($data['cats']) && is_array($data['cats']) ? count($data['cats']) : 0;
-            $controls = isset($data['controls']) && is_array($data['controls']) ? count($data['controls']) : 0;
+            $rooms = $this->CountArray($data, 'rooms');
+            $cats = $this->CountArray($data, 'cats');
+            $controls = $this->CountArray($data, 'controls');
 
             return "Miniserver ausgelesen\n" .
                 "Projekt: " . $projectName . "\n" .
@@ -89,36 +90,46 @@ class LoxoneGateway extends IPSModule
         }
     }
 
-
     public function ImportObjectTree()
     {
+        return $this->ImportControls();
+    }
+
+    public function ImportControls()
+    {
         try {
-            $api = $this->CreateApi();
-            $data = $api->getLoxApp3();
+            $data = $this->CreateApi()->getLoxApp3();
+            $rooms = is_array($data['rooms'] ?? null) ? $data['rooms'] : [];
+            $cats = is_array($data['cats'] ?? null) ? $data['cats'] : [];
+            $controls = is_array($data['controls'] ?? null) ? $data['controls'] : [];
 
-            $rootId = $this->GetOrCreateCategory($this->InstanceID, 'Loxone', 'loxone_root');
-            $roomsRootId = $this->GetOrCreateCategory($rootId, 'Räume', 'rooms');
-            $catsRootId = $this->GetOrCreateCategory($rootId, 'Kategorien', 'categories');
-            $controlsRootId = $this->GetOrCreateCategory($rootId, 'Controls', 'controls');
+            $roomNames = $this->BuildNameMap($rooms);
+            $catNames = $this->BuildNameMap($cats);
 
-            $roomNames = [];
-            foreach (($data['rooms'] ?? []) as $uuid => $room) {
+            $rootId = $this->GetOrCreateCategory($this->InstanceID, 'Loxone', 'loxone_root', 100);
+            $roomsRootId = $this->GetOrCreateCategory($rootId, 'Räume', 'rooms', 10);
+            $catsRootId = $this->GetOrCreateCategory($rootId, 'Kategorien', 'categories', 20);
+            $controlsRootId = $this->GetOrCreateCategory($rootId, 'Controls', 'controls', 30);
+
+            foreach ($rooms as $uuid => $room) {
                 $name = (string)($room['name'] ?? $uuid);
-                $roomNames[$uuid] = $name;
-                $this->GetOrCreateCategory($roomsRootId, $name, 'room_' . $this->IdentFromUuid($uuid));
+                $this->GetOrCreateCategory($roomsRootId, $name, 'room_' . $this->IdentFromUuid((string)$uuid));
             }
 
-            $catNames = [];
-            foreach (($data['cats'] ?? []) as $uuid => $cat) {
+            foreach ($cats as $uuid => $cat) {
                 $name = (string)($cat['name'] ?? $uuid);
-                $catNames[$uuid] = $name;
-                $this->GetOrCreateCategory($catsRootId, $name, 'cat_' . $this->IdentFromUuid($uuid));
+                $this->GetOrCreateCategory($catsRootId, $name, 'cat_' . $this->IdentFromUuid((string)$uuid));
             }
 
             $importedControls = 0;
             $importedStates = 0;
+            $typeCounter = [];
 
-            foreach (($data['controls'] ?? []) as $uuid => $control) {
+            foreach ($controls as $uuid => $control) {
+                if (!is_array($control)) {
+                    continue;
+                }
+
                 $controlName = (string)($control['name'] ?? $uuid);
                 $controlType = (string)($control['type'] ?? 'Unknown');
                 $roomUuid = (string)($control['room'] ?? '');
@@ -127,40 +138,148 @@ class LoxoneGateway extends IPSModule
                 $roomName = $roomNames[$roomUuid] ?? 'Nicht zugeordnet';
                 $catName = $catNames[$catUuid] ?? 'Nicht zugeordnet';
 
-                $roomContainerId = $this->GetOrCreateCategory($controlsRootId, $roomName, 'controls_room_' . $this->IdentFromString($roomName));
-                $controlId = $this->GetOrCreateCategory($roomContainerId, $controlName, 'control_' . $this->IdentFromUuid($uuid));
+                $roomId = $this->GetOrCreateCategory($controlsRootId, $roomName, 'controls_room_' . $this->IdentFromUuidOrString($roomUuid, $roomName));
+                $catId = $this->GetOrCreateCategory($roomId, $catName, 'controls_cat_' . $this->IdentFromUuidOrString($catUuid, $catName));
+                $controlId = $this->GetOrCreateCategory($catId, $controlName, 'control_' . $this->IdentFromUuid((string)$uuid));
 
-                $this->CreateOrUpdateStringVariable($controlId, 'Typ', 'type', $controlType, 10);
-                $this->CreateOrUpdateStringVariable($controlId, 'UUID Action', 'uuid_action', (string)($control['uuidAction'] ?? $uuid), 20);
-                $this->CreateOrUpdateStringVariable($controlId, 'Raum', 'room', $roomName, 30);
-                $this->CreateOrUpdateStringVariable($controlId, 'Kategorie', 'category', $catName, 40);
+                IPS_SetIcon($controlId, $this->IconForControlType($controlType));
 
-                $stateRootId = $this->GetOrCreateCategory($controlId, 'States', 'states');
+                $metaId = $this->GetOrCreateCategory($controlId, 'Metadaten', 'metadata', 10);
+                $this->CreateOrUpdateStringVariable($metaId, 'UUID', 'uuid', (string)$uuid, 10);
+                $this->CreateOrUpdateStringVariable($metaId, 'UUID Action', 'uuid_action', (string)($control['uuidAction'] ?? $uuid), 20);
+                $this->CreateOrUpdateStringVariable($metaId, 'Typ', 'type', $controlType, 30);
+                $this->CreateOrUpdateStringVariable($metaId, 'Raum', 'room', $roomName, 40);
+                $this->CreateOrUpdateStringVariable($metaId, 'Kategorie', 'category', $catName, 50);
+                $this->CreateOrUpdateIntegerVariable($metaId, 'Restrictions', 'restrictions', (int)($control['restrictions'] ?? 0), 60);
+
+                $statesId = $this->GetOrCreateCategory($controlId, 'States', 'states', 20);
                 foreach (($control['states'] ?? []) as $stateName => $stateUuid) {
-                    $this->CreateOrUpdateStringVariable(
-                        $stateRootId,
+                    $this->CreateTypedStateVariable(
+                        $statesId,
                         (string)$stateName,
-                        'state_' . $this->IdentFromString((string)$stateName),
                         (string)$stateUuid,
+                        $controlType,
                         10 + $importedStates
                     );
                     $importedStates++;
                 }
 
+                $typeCounter[$controlType] = ($typeCounter[$controlType] ?? 0) + 1;
                 $importedControls++;
             }
 
-            return "Loxone Objektbaum importiert\n" .
-                "Räume: " . count($roomNames) . "\n" .
-                "Kategorien: " . count($catNames) . "\n" .
+            $this->SetValue('ImportedControls', $importedControls);
+            $this->SetValue('ImportedStates', $importedStates);
+
+            ksort($typeCounter);
+            $types = [];
+            foreach ($typeCounter as $type => $count) {
+                $types[] = $type . ': ' . $count;
+            }
+
+            return "Controls importiert / aktualisiert\n" .
+                "Räume: " . count($rooms) . "\n" .
+                "Kategorien: " . count($cats) . "\n" .
                 "Controls: " . $importedControls . "\n" .
-                "States: " . $importedStates;
+                "States: " . $importedStates . "\n\n" .
+                "Control-Typen:\n" . implode("\n", $types);
         } catch (Throwable $e) {
             return "Fehler beim Import:\n" . $e->getMessage();
         }
     }
 
-    private function GetOrCreateCategory(int $parentId, string $name, string $ident): int
+    private function CreateTypedStateVariable(int $parentId, string $stateName, string $stateUuid, string $controlType, int $position): int
+    {
+        $ident = 'state_' . $this->IdentFromString($stateName);
+        $type = $this->VariableTypeForState($stateName, $controlType);
+        $profile = $this->ProfileForState($stateName, $type);
+        $caption = $stateName . ' (' . $stateUuid . ')';
+
+        $id = @IPS_GetObjectIDByIdent($ident, $parentId);
+        if ($id === false) {
+            $id = IPS_CreateVariable($type);
+            IPS_SetParent($id, $parentId);
+            IPS_SetIdent($id, $ident);
+        }
+
+        IPS_SetName($id, $caption);
+        IPS_SetPosition($id, $position);
+        if ($profile !== '') {
+            @IPS_SetVariableCustomProfile($id, $profile);
+        }
+
+        // Default value only at import time. Real values will be provided by WebSocket in the next sprint.
+        switch ($type) {
+            case 0:
+                SetValueBoolean($id, false);
+                break;
+            case 1:
+                SetValueInteger($id, 0);
+                break;
+            case 2:
+                SetValueFloat($id, 0.0);
+                break;
+            default:
+                SetValueString($id, $stateUuid);
+                break;
+        }
+
+        return $id;
+    }
+
+    private function VariableTypeForState(string $stateName, string $controlType): int
+    {
+        $name = strtolower($stateName);
+        $boolStates = [
+            'active', 'jlocked', 'lockedon', 'resetactive', 'needsactivation', 'opened', 'closed',
+            'online', 'offline', 'certificatevalid', 'hasinternet', 'changed'
+        ];
+        if (in_array($name, $boolStates, true)) {
+            return 0;
+        }
+
+        $integerStates = ['mode', 'devicestate', 'keypadauthtype', 'lastid'];
+        if (in_array($name, $integerStates, true)) {
+            return 1;
+        }
+
+        $floatStates = ['value', 'position', 'temperature', 'humidity', 'brightness', 'speed'];
+        if (in_array($name, $floatStates, true)) {
+            return 2;
+        }
+
+        return 3;
+    }
+
+    private function ProfileForState(string $stateName, int $type): string
+    {
+        if ($type === 0) {
+            return '~Switch';
+        }
+        if ($type === 2) {
+            $name = strtolower($stateName);
+            if (str_contains($name, 'temperature')) {
+                return '~Temperature';
+            }
+            if (str_contains($name, 'humidity')) {
+                return '~Humidity';
+            }
+        }
+        return '';
+    }
+
+    private function BuildNameMap(array $items): array
+    {
+        $map = [];
+        foreach ($items as $uuid => $item) {
+            if (is_array($item)) {
+                $map[(string)$uuid] = (string)($item['name'] ?? $uuid);
+            }
+        }
+        return $map;
+    }
+
+    private function GetOrCreateCategory(int $parentId, string $name, string $ident, int $position = 0): int
     {
         $id = @IPS_GetObjectIDByIdent($ident, $parentId);
         if ($id === false) {
@@ -170,27 +289,81 @@ class LoxoneGateway extends IPSModule
         }
 
         IPS_SetName($id, $name);
+        IPS_SetPosition($id, $position);
         return $id;
     }
 
     private function CreateOrUpdateStringVariable(int $parentId, string $name, string $ident, string $value, int $position): int
     {
+        $id = $this->GetOrCreateVariable($parentId, $name, $ident, 3, $position);
+        SetValueString($id, $value);
+        return $id;
+    }
+
+    private function CreateOrUpdateIntegerVariable(int $parentId, string $name, string $ident, int $value, int $position): int
+    {
+        $id = $this->GetOrCreateVariable($parentId, $name, $ident, 1, $position);
+        SetValueInteger($id, $value);
+        return $id;
+    }
+
+    private function GetOrCreateVariable(int $parentId, string $name, string $ident, int $type, int $position): int
+    {
         $id = @IPS_GetObjectIDByIdent($ident, $parentId);
         if ($id === false) {
-            $id = IPS_CreateVariable(3);
+            $id = IPS_CreateVariable($type);
             IPS_SetParent($id, $parentId);
             IPS_SetIdent($id, $ident);
         }
 
         IPS_SetName($id, $name);
         IPS_SetPosition($id, $position);
-        SetValueString($id, $value);
         return $id;
+    }
+
+    private function CountArray(array $data, string $key): int
+    {
+        return isset($data[$key]) && is_array($data[$key]) ? count($data[$key]) : 0;
+    }
+
+    private function IconForControlType(string $type): string
+    {
+        $type = strtolower($type);
+        if (str_contains($type, 'light')) {
+            return 'Bulb';
+        }
+        if (str_contains($type, 'jalousie') || str_contains($type, 'blind')) {
+            return 'Shutter';
+        }
+        if (str_contains($type, 'audio')) {
+            return 'Speaker';
+        }
+        if (str_contains($type, 'nfc') || str_contains($type, 'door')) {
+            return 'Lock';
+        }
+        if (str_contains($type, 'alarm')) {
+            return 'Warning';
+        }
+        if (str_contains($type, 'weather')) {
+            return 'Cloud';
+        }
+        if (str_contains($type, 'switch')) {
+            return 'Power';
+        }
+        return 'Database';
     }
 
     private function IdentFromUuid(string $uuid): string
     {
         return str_replace('-', '_', strtolower($uuid));
+    }
+
+    private function IdentFromUuidOrString(string $uuid, string $fallback): string
+    {
+        if ($uuid !== '') {
+            return $this->IdentFromUuid($uuid);
+        }
+        return $this->IdentFromString($fallback);
     }
 
     private function IdentFromString(string $value): string
@@ -207,7 +380,7 @@ class LoxoneGateway extends IPSModule
         return $value;
     }
 
-    private function CreateApi()
+    private function CreateApi(): SymconLoxoneAPI
     {
         return new SymconLoxoneAPI(
             trim($this->ReadPropertyString('Host')),

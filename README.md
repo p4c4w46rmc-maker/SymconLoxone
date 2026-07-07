@@ -1,18 +1,24 @@
 # SymconLoxone
 
-Loxone integration for IP-Symcon.
+A modern Loxone integration for IP-Symcon.
 
 ## Status
 
-Sprint 3: installable gateway module with basic Miniserver readout and first object tree import.
+Version 0.4: Import Engine.
 
-## Sprint 3 features
+## Features in 0.4
 
-- Reads `/data/LoxAPP3.json`
-- Creates a `Loxone` category below the gateway instance
-- Imports rooms
-- Imports categories
-- Imports controls grouped by room
-- Stores control metadata and state UUIDs
+- Native IP-Symcon module structure
+- Loxone Gateway instance
+- Host, port, HTTPS, username and password configuration
+- Basic connection test against `/jdev/cfg/version`
+- Basic LoxAPP3 analysis against `/data/LoxAPP3.json`
+- Object tree import
+- Control import grouped by room and category
+- Typed state variables for common Loxone states
+- Metadata variables for UUID, room, category and control type
 
-This is still an import prototype. Live values and control commands will follow in later sprints.
+## Next
+
+- Live state updates via WebSocket
+- Command support for Pushbutton, Switch, Light and Jalousie

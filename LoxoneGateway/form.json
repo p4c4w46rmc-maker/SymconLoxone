@@ -41,8 +41,12 @@
     },
     {
       "type": "Button",
-      "caption": "Objektbaum importieren",
-      "onClick": "echo LOX_ImportObjectTree($id);"
+      "caption": "Controls importieren / aktualisieren",
+      "onClick": "echo LOX_ImportControls($id);"
+    },
+    {
+      "type": "Label",
+      "caption": "Sprint 4: Importiert Controls mit typisierten State-Variablen. Live-Werte folgen mit WebSocket im nächsten Schritt."
     }
   ]
 }
