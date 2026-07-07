@@ -1,0 +1,14 @@
+{
+  "id": "{7A18B2F4-2FA0-4D78-9E19-6D445A182C10}",
+  "name": "Loxone Device",
+  "type": 3,
+  "vendor": "Loxone",
+  "aliases": [
+    "Loxone Device"
+  ],
+  "url": "https://github.com/p4c4w46rmc-maker/SymconLoxone",
+  "parentRequirements": [],
+  "childRequirements": [],
+  "implemented": [],
+  "prefix": "LOXD"
+}

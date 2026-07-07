@@ -1,0 +1,50 @@
+{
+  "elements": [
+    {
+      "type": "NumberSpinner",
+      "name": "GatewayID",
+      "caption": "Gateway Instanz-ID"
+    },
+    {
+      "type": "ValidationTextBox",
+      "name": "ControlName",
+      "caption": "Control Name"
+    },
+    {
+      "type": "ValidationTextBox",
+      "name": "ControlType",
+      "caption": "Control Typ"
+    },
+    {
+      "type": "ValidationTextBox",
+      "name": "ControlUUID",
+      "caption": "Control UUID"
+    },
+    {
+      "type": "ValidationTextBox",
+      "name": "ActionUUID",
+      "caption": "Action UUID"
+    },
+    {
+      "type": "ValidationTextBox",
+      "name": "RoomName",
+      "caption": "Raum"
+    },
+    {
+      "type": "ValidationTextBox",
+      "name": "CategoryName",
+      "caption": "Kategorie"
+    }
+  ],
+  "actions": [
+    {
+      "type": "Button",
+      "caption": "Metadaten aktualisieren",
+      "onClick": "echo LOXD_RefreshMetadata($id);"
+    },
+    {
+      "type": "Label",
+      "caption": "Sprint 5: Diese Instanz repräsentiert ein Loxone-Control. Live-Werte und Steuerbefehle folgen im nächsten Sprint."
+    }
+  ]
+}

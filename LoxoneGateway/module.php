@@ -22,6 +22,7 @@ class LoxoneGateway extends IPSModule
         $this->RegisterVariableString('CurrentUser', 'Benutzer', '', 40);
         $this->RegisterVariableInteger('ImportedControls', 'Importierte Controls', '', 50);
         $this->RegisterVariableInteger('ImportedStates', 'Importierte States', '', 60);
+        $this->RegisterVariableInteger('ImportedDevices', 'Erzeugte Geräte-Instanzen', '', 70);
     }
 
     public function ApplyChanges()
@@ -185,6 +186,83 @@ class LoxoneGateway extends IPSModule
                 "Control-Typen:\n" . implode("\n", $types);
         } catch (Throwable $e) {
             return "Fehler beim Import:\n" . $e->getMessage();
+        }
+    }
+
+
+
+    public function ImportDeviceInstances()
+    {
+        try {
+            $data = $this->CreateApi()->getLoxApp3();
+            $rooms = is_array($data['rooms'] ?? null) ? $data['rooms'] : [];
+            $cats = is_array($data['cats'] ?? null) ? $data['cats'] : [];
+            $controls = is_array($data['controls'] ?? null) ? $data['controls'] : [];
+
+            $roomNames = $this->BuildNameMap($rooms);
+            $catNames = $this->BuildNameMap($cats);
+
+            $rootId = $this->GetOrCreateCategory($this->InstanceID, 'Loxone', 'loxone_root', 100);
+            $devicesRootId = $this->GetOrCreateCategory($rootId, 'Geräte', 'devices', 40);
+
+            $createdOrUpdated = 0;
+            $typeCounter = [];
+            $deviceModuleGuid = '{7A18B2F4-2FA0-4D78-9E19-6D445A182C10}';
+
+            foreach ($controls as $uuid => $control) {
+                if (!is_array($control)) {
+                    continue;
+                }
+
+                $controlName = (string)($control['name'] ?? $uuid);
+                $controlType = (string)($control['type'] ?? 'Unknown');
+                $roomUuid = (string)($control['room'] ?? '');
+                $catUuid = (string)($control['cat'] ?? '');
+                $roomName = $roomNames[$roomUuid] ?? 'Nicht zugeordnet';
+                $catName = $catNames[$catUuid] ?? 'Nicht zugeordnet';
+
+                $roomId = $this->GetOrCreateCategory($devicesRootId, $roomName, 'device_room_' . $this->IdentFromUuidOrString($roomUuid, $roomName));
+                $catId = $this->GetOrCreateCategory($roomId, $catName, 'device_cat_' . $this->IdentFromUuidOrString($catUuid, $catName));
+                $ident = 'device_' . $this->IdentFromUuid((string)$uuid);
+
+                $instanceId = @IPS_GetObjectIDByIdent($ident, $catId);
+                if ($instanceId === false) {
+                    $instanceId = IPS_CreateInstance($deviceModuleGuid);
+                    IPS_SetParent($instanceId, $catId);
+                    IPS_SetIdent($instanceId, $ident);
+                }
+
+                IPS_SetName($instanceId, $controlName);
+                IPS_SetIcon($instanceId, $this->IconForControlType($controlType));
+
+                IPS_SetProperty($instanceId, 'GatewayID', $this->InstanceID);
+                IPS_SetProperty($instanceId, 'ControlUUID', (string)$uuid);
+                IPS_SetProperty($instanceId, 'ActionUUID', (string)($control['uuidAction'] ?? $uuid));
+                IPS_SetProperty($instanceId, 'ControlName', $controlName);
+                IPS_SetProperty($instanceId, 'ControlType', $controlType);
+                IPS_SetProperty($instanceId, 'RoomName', $roomName);
+                IPS_SetProperty($instanceId, 'CategoryName', $catName);
+                IPS_SetProperty($instanceId, 'StatesJson', json_encode($control['states'] ?? [], JSON_UNESCAPED_UNICODE));
+                IPS_SetProperty($instanceId, 'DetailsJson', json_encode($control['details'] ?? [], JSON_UNESCAPED_UNICODE));
+                IPS_ApplyChanges($instanceId);
+
+                $typeCounter[$controlType] = ($typeCounter[$controlType] ?? 0) + 1;
+                $createdOrUpdated++;
+            }
+
+            $this->SetValue('ImportedDevices', $createdOrUpdated);
+
+            ksort($typeCounter);
+            $types = [];
+            foreach ($typeCounter as $type => $count) {
+                $types[] = $type . ': ' . $count;
+            }
+
+            return "Geräte-Instanzen erzeugt / aktualisiert\n" .
+                "Geräte: " . $createdOrUpdated . "\n\n" .
+                "Control-Typen:\n" . implode("\n", $types);
+        } catch (Throwable $e) {
+            return "Fehler beim Erzeugen der Geräte-Instanzen:\n" . $e->getMessage();
         }
     }
 

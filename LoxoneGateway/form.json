@@ -45,8 +45,13 @@
       "onClick": "echo LOX_ImportControls($id);"
     },
     {
+      "type": "Button",
+      "caption": "Geräte-Instanzen erzeugen / aktualisieren",
+      "onClick": "echo LOX_ImportDeviceInstances($id);"
+    },
+    {
       "type": "Label",
-      "caption": "Sprint 4: Importiert Controls mit typisierten State-Variablen. Live-Werte folgen mit WebSocket im nächsten Schritt."
+      "caption": "Sprint 5: Erzeugt echte Loxone Device-Instanzen je Control. Live-Werte und Steuerbefehle folgen im nächsten Schritt."
     }
   ]
 }
