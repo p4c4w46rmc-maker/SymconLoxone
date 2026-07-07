@@ -77,8 +77,13 @@
       "onClick": "echo LOX_GetWebSocketInfo($id);"
     },
     {
+      "type": "Button",
+      "caption": "WebSocket Handshake testen",
+      "onClick": "echo LOX_TestWebSocketHandshake($id);"
+    },
+    {
       "type": "Label",
-      "caption": "Sprint 7.1: HTTP-Snapshot filtert nicht direkt lesbare States. WebSocket-Transport wird auf dem State-Index aufgebaut."
+      "caption": "Sprint 7.2: WebSocket-Handshake-Test. Nach erfolgreichem 101-Upgrade wird der permanente Listener implementiert."
     }
   ]
 }

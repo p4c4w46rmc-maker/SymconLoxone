@@ -1,14 +1,10 @@
 # SymconLoxone
 
-Sprint 7.1: LiveEngine foundation cleanup.
+Sprint 7.2: WebSocket handshake diagnostic.
 
 ## Neu
 
-- State-Index bleibt aktiv: `Loxone State UUID -> Symcon VariableID`
-- HTTP-Snapshot filtert States, die Loxone über `/dev/sps/io` nicht direkt liefert
-- weniger 404-Meldungen bei Daytimer/NFC/komplexen States
-- WebSocket-Transport-Scaffold vorbereitet
-
-## Nächster Schritt
-
-Token-/Session-Handshake und echter WebSocket-Empfang für Live-Werte.
+- WebSocket-Handshake-Test gegen `/ws/rfc6455`
+- prüft TCP/TLS-Verbindung, HTTP-Upgrade und Basic-Auth-Header
+- Statusvariablen für WebSocket-URL und letzten Handshake
+- noch kein permanenter Live-Listener; dieser folgt nach erfolgreichem 101-Upgrade-Test

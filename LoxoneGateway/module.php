@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../libs/LoxoneAPI.php';
+require_once __DIR__ . '/../libs/LoxoneWebSocket.php';
 
 class LoxoneGateway extends IPSModule
 {
@@ -30,6 +31,8 @@ class LoxoneGateway extends IPSModule
         $this->RegisterVariableInteger('ReadableStateIndexSize', 'HTTP-lesbare State-Einträge', '', 85);
         $this->RegisterVariableString('LiveEngineStatus', 'LiveEngine Status', '', 90);
         $this->RegisterVariableString('LastLiveUpdate', 'Letztes Live-Update', '', 100);
+        $this->RegisterVariableString('WebSocketUrl', 'WebSocket URL', '', 110);
+        $this->RegisterVariableString('LastWebSocketHandshake', 'Letzter WebSocket Handshake', '', 120);
     }
 
     public function ApplyChanges()
@@ -747,11 +750,10 @@ Fehler: " . count($errors) . "
 
     public function GetWebSocketInfo()
     {
-        $scheme = $this->ReadPropertyBoolean('UseHttps') ? 'wss' : 'ws';
-        $host = trim($this->ReadPropertyString('Host'));
-        $port = $this->ReadPropertyInteger('Port');
-        $url = sprintf('%s://%s:%d/ws/rfc6455', $scheme, $host, $port);
+        $ws = $this->CreateWebSocket();
+        $url = $ws->getUrl();
 
+        $this->SetValue('WebSocketUrl', $url);
         $this->SetValue('LiveEngineStatus', 'WebSocket vorbereitet: ' . $url);
 
         return "WebSocket vorbereitet
@@ -760,6 +762,60 @@ Fehler: " . count($errors) . "
 
 " .
             "Der State-Index ist die Zuordnung StateUUID → VariableID. Im nächsten Schritt wird der Transport daran angeschlossen.";
+    }
+
+    public function TestWebSocketHandshake()
+    {
+        try {
+            $ws = $this->CreateWebSocket();
+            $result = $ws->testHandshake(5);
+
+            $statusLine = (string)($result['statusLine'] ?? '');
+            $statusCode = (int)($result['statusCode'] ?? 0);
+            $url = (string)($result['url'] ?? '');
+            $rawHeaders = trim((string)($result['rawHeaders'] ?? ''));
+
+            $this->SetValue('WebSocketUrl', $url);
+            $this->SetValue('LastWebSocketHandshake', date('Y-m-d H:i:s') . ' ' . $statusLine);
+
+            if ($statusCode === 101) {
+                $this->SetValue('LiveEngineStatus', 'WebSocket Handshake OK');
+                return "WebSocket Handshake OK
+" .
+                    "URL: " . $url . "
+" .
+                    "Status: " . $statusLine . "
+
+" .
+                    "Der Miniserver akzeptiert das WebSocket-Upgrade. Im nächsten Sprint wird der permanente Listener mit Frame-Auswertung angebunden.";
+            }
+
+            $this->SetValue('LiveEngineStatus', 'WebSocket Handshake fehlgeschlagen: ' . $statusLine);
+            return "WebSocket Handshake nicht erfolgreich
+" .
+                "URL: " . $url . "
+" .
+                "Status: " . $statusLine . "
+
+" .
+                "Antwort:
+" . substr($rawHeaders, 0, 1500);
+        } catch (Throwable $e) {
+            $this->SetValue('LiveEngineStatus', 'WebSocket Fehler: ' . $e->getMessage());
+            return "Fehler beim WebSocket Handshake:
+" . $e->getMessage();
+        }
+    }
+
+    private function CreateWebSocket(): SymconLoxoneWebSocket
+    {
+        return new SymconLoxoneWebSocket(
+            trim($this->ReadPropertyString('Host')),
+            $this->ReadPropertyInteger('Port'),
+            $this->ReadPropertyBoolean('UseHttps'),
+            $this->ReadPropertyString('Username'),
+            $this->ReadPropertyString('Password')
+        );
     }
 
     private function CreateApi(): SymconLoxoneAPI
