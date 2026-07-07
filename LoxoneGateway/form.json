@@ -38,6 +38,11 @@
       "type": "Button",
       "caption": "Miniserver auslesen",
       "onClick": "echo LOX_ReadMiniserver($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "Objektbaum importieren",
+      "onClick": "echo LOX_ImportObjectTree($id);"
     }
   ]
 }
