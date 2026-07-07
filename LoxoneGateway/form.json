@@ -68,12 +68,17 @@
     },
     {
       "type": "Button",
-      "caption": "LiveEngine Test: Indexed Refresh",
+      "caption": "LiveEngine Test: HTTP-Snapshot",
       "onClick": "echo LOX_RefreshIndexedStateValues($id);"
     },
     {
+      "type": "Button",
+      "caption": "WebSocket vorbereiten",
+      "onClick": "echo LOX_GetWebSocketInfo($id);"
+    },
+    {
       "type": "Label",
-      "caption": "Sprint 7: LiveEngine-Grundlage. StateUUID→VariableID Index ist aktiv; WebSocket-Transport wird darauf aufgesetzt."
+      "caption": "Sprint 7.1: HTTP-Snapshot filtert nicht direkt lesbare States. WebSocket-Transport wird auf dem State-Index aufgebaut."
     }
   ]
 }

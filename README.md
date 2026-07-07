@@ -1,13 +1,14 @@
 # SymconLoxone
 
-Sprint 7: LiveEngine foundation.
+Sprint 7.1: LiveEngine foundation cleanup.
 
-## Neu in Sprint 7
+## Neu
 
-- State-Index: Loxone State UUID → Symcon VariableID
-- Gateway-Variablen für LiveEngine-Status
-- Button **State-Index erstellen**
-- Button **LiveEngine Test: Indexed Refresh**
-- zentrale Methode `ApplyLiveStateValue($stateUuid, $rawValue)` als Grundlage für WebSocket-Ereignisse
+- State-Index bleibt aktiv: `Loxone State UUID -> Symcon VariableID`
+- HTTP-Snapshot filtert States, die Loxone über `/dev/sps/io` nicht direkt liefert
+- weniger 404-Meldungen bei Daytimer/NFC/komplexen States
+- WebSocket-Transport-Scaffold vorbereitet
 
-Hinweis: Der echte WebSocket-Transport wird im nächsten Schritt auf diese State-Index-Schicht gesetzt. Sprint 7 validiert zuerst die zentrale Zuordnung und Aktualisierung aller State-Variablen.
+## Nächster Schritt
+
+Token-/Session-Handshake und echter WebSocket-Empfang für Live-Werte.

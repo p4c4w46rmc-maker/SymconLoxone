@@ -27,6 +27,7 @@ class LoxoneGateway extends IPSModule
         $this->RegisterVariableInteger('ImportedStates', 'Importierte States', '', 60);
         $this->RegisterVariableInteger('ImportedDevices', 'Erzeugte Geräte-Instanzen', '', 70);
         $this->RegisterVariableInteger('StateIndexSize', 'State-Index Einträge', '', 80);
+        $this->RegisterVariableInteger('ReadableStateIndexSize', 'HTTP-lesbare State-Einträge', '', 85);
         $this->RegisterVariableString('LiveEngineStatus', 'LiveEngine Status', '', 90);
         $this->RegisterVariableString('LastLiveUpdate', 'Letztes Live-Update', '', 100);
     }
@@ -553,9 +554,15 @@ Fehler:
 
             $api = $this->CreateApi();
             $updated = 0;
+            $skipped = 0;
             $errors = [];
 
             foreach ($index as $stateUuid => $entry) {
+                if (!$this->IsStateHttpReadable($entry)) {
+                    $skipped++;
+                    continue;
+                }
+
                 try {
                     $rawValue = $api->getIoValue((string)$stateUuid);
                     $this->ApplyLiveStateValue((string)$stateUuid, $rawValue);
@@ -565,20 +572,33 @@ Fehler:
                 }
             }
 
-            $this->SetValue('LiveEngineStatus', 'Index-Refresh abgeschlossen');
+            $readable = $this->CountHttpReadableStates($index);
+            $this->SetValue('LiveEngineStatus', 'HTTP-Snapshot abgeschlossen');
             $this->SetValue('LastLiveUpdate', date('Y-m-d H:i:s'));
+            $this->SetValue('ReadableStateIndexSize', $readable);
 
-            $text = "Indexed State Refresh abgeschlossen\n" .
-                "Index-Einträge: " . count($index) . "\n" .
-                "Aktualisiert: " . $updated;
+            $text = "HTTP-Snapshot abgeschlossen
+" .
+                "Index-Einträge: " . count($index) . "
+" .
+                "HTTP-lesbar: " . $readable . "
+" .
+                "Aktualisiert: " . $updated . "
+" .
+                "Übersprungen: " . $skipped;
 
             if (count($errors) > 0) {
-                $text .= "\n\nFehler: " . count($errors) . "\n" . implode("\n", array_slice($errors, 0, 10));
+                $text .= "
+
+Fehler: " . count($errors) . "
+" . implode("
+", array_slice($errors, 0, 10));
             }
 
             return $text;
         } catch (Throwable $e) {
-            return "Fehler beim Indexed Refresh:\n" . $e->getMessage();
+            return "Fehler beim HTTP-Snapshot:
+" . $e->getMessage();
         }
     }
 
@@ -675,6 +695,71 @@ Fehler:
                 }
                 break;
         }
+    }
+
+    private function CountHttpReadableStates(array $index): int
+    {
+        $count = 0;
+        foreach ($index as $entry) {
+            if ($this->IsStateHttpReadable($entry)) {
+                $count++;
+            }
+        }
+        return $count;
+    }
+
+    private function IsStateHttpReadable(array $entry): bool
+    {
+        $controlType = (string)($entry['controlType'] ?? '');
+        $stateName = (string)($entry['stateName'] ?? '');
+
+        $unsupportedControlTypes = [
+            'Daytimer',
+            'NfcCodeTouch',
+            'AudioZone',
+            'AudioServer',
+            'Intercom'
+        ];
+        if (in_array($controlType, $unsupportedControlTypes, true)) {
+            return false;
+        }
+
+        $unsupportedStates = [
+            'entriesAndDefaultValue',
+            'resetActive',
+            'modeList',
+            'historyDate',
+            'codeDate',
+            'events',
+            'lastid',
+            'lastuser',
+            'lasttag',
+            'lastcode',
+            'keyPadAuthType',
+            'nfcLearnResult'
+        ];
+        if (in_array($stateName, $unsupportedStates, true)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    public function GetWebSocketInfo()
+    {
+        $scheme = $this->ReadPropertyBoolean('UseHttps') ? 'wss' : 'ws';
+        $host = trim($this->ReadPropertyString('Host'));
+        $port = $this->ReadPropertyInteger('Port');
+        $url = sprintf('%s://%s:%d/ws/rfc6455', $scheme, $host, $port);
+
+        $this->SetValue('LiveEngineStatus', 'WebSocket vorbereitet: ' . $url);
+
+        return "WebSocket vorbereitet
+" .
+            "URL: " . $url . "
+
+" .
+            "Der State-Index ist die Zuordnung StateUUID → VariableID. Im nächsten Schritt wird der Transport daran angeschlossen.";
     }
 
     private function CreateApi(): SymconLoxoneAPI
