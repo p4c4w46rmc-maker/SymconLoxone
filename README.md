@@ -4,23 +4,22 @@ A modern Loxone integration for IP-Symcon.
 
 ## Status
 
-Version 0.5: Device instance architecture.
+Version 0.6: first state refresh implementation.
 
-## Features in 0.5
+## Features so far
 
 - Native IP-Symcon module structure
 - Loxone Gateway instance
-- Host, port, HTTPS, username and password configuration
+- Loxone Device instances
 - Basic connection test against `/jdev/cfg/version`
-- LoxAPP3 analysis against `/data/LoxAPP3.json`
-- Control import grouped by room and category
-- Typed state variables for common Loxone states
-- New `Loxone Device` module
-- Gateway can create/update one device instance per Loxone control
-- Device instances store UUID, action UUID, room, category, control type and states
+- Basic LoxAPP3 analysis against `/data/LoxAPP3.json`
+- Import rooms, categories and controls
+- Create one device instance per Loxone control
+- Register state variables per control
+- Refresh state values via Loxone IO webservice
+- Optional polling interval on gateway
 
 ## Next
 
-- Configurator UI for selectable import
-- Live state updates via WebSocket
-- Command support for Pushbutton, Switch, Light and Jalousie
+- Replace polling with persistent WebSocket live updates
+- Add control actions for Switch, Pushbutton, gates, alarm, shading and lights

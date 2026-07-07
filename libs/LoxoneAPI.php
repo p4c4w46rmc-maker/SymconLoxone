@@ -29,6 +29,26 @@ class SymconLoxoneAPI
         return $this->getJson('/data/LoxAPP3.json');
     }
 
+    public function getIo(string $uuidOrName): array
+    {
+        return $this->getJson('/jdev/sps/io/' . rawurlencode($uuidOrName));
+    }
+
+    public function getIoValue(string $uuidOrName)
+    {
+        $response = $this->getIo($uuidOrName);
+        if (!isset($response['LL'])) {
+            throw new RuntimeException('Loxone Antwort enthält keinen LL-Block.');
+        }
+
+        $code = (string)($response['LL']['Code'] ?? '');
+        if ($code !== '200') {
+            throw new RuntimeException('Loxone IO Antwortcode ist ' . $code . ': ' . json_encode($response, JSON_UNESCAPED_UNICODE));
+        }
+
+        return $response['LL']['value'] ?? null;
+    }
+
     private function getJson(string $path): array
     {
         $body = $this->request($path);

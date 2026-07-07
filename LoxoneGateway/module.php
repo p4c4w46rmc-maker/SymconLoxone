@@ -15,6 +15,9 @@ class LoxoneGateway extends IPSModule
         $this->RegisterPropertyBoolean('UseHttps', false);
         $this->RegisterPropertyString('Username', '');
         $this->RegisterPropertyString('Password', '');
+        $this->RegisterPropertyInteger('PollingInterval', 0);
+
+        $this->RegisterTimer('RefreshStates', 0, 'LOX_RefreshAllDeviceStates($_IPS["TARGET"]);');
 
         $this->RegisterVariableString('Version', 'Miniserver Version', '', 10);
         $this->RegisterVariableString('ProjectName', 'Projektname', '', 20);
@@ -39,6 +42,9 @@ class LoxoneGateway extends IPSModule
         $scheme = $this->ReadPropertyBoolean('UseHttps') ? 'https' : 'http';
         $port = $this->ReadPropertyInteger('Port');
         $this->SetSummary(sprintf('%s://%s:%d', $scheme, $host, $port));
+        $interval = $this->ReadPropertyInteger('PollingInterval');
+        $this->SetTimerInterval('RefreshStates', max(0, $interval) * 1000);
+
         $this->SetStatus(102);
     }
 
@@ -456,6 +462,62 @@ class LoxoneGateway extends IPSModule
             $value = 'n_' . $value;
         }
         return $value;
+    }
+
+
+
+    public function GetStateValue(string $stateUuid)
+    {
+        if (trim($stateUuid) === '') {
+            throw new RuntimeException('State UUID ist leer.');
+        }
+
+        return $this->CreateApi()->getIoValue($stateUuid);
+    }
+
+    public function RefreshAllDeviceStates()
+    {
+        $deviceModuleGuid = '{7A18B2F4-2FA0-4D78-9E19-6D445A182C10}';
+        $instanceIds = IPS_GetInstanceListByModuleID($deviceModuleGuid);
+        $updated = 0;
+        $errors = [];
+
+        foreach ($instanceIds as $instanceId) {
+            $gatewayId = (int)IPS_GetProperty($instanceId, 'GatewayID');
+            if ($gatewayId !== $this->InstanceID) {
+                continue;
+            }
+
+            try {
+                $message = LOXD_RefreshStateValues($instanceId);
+                if (preg_match('/Aktualisiert: (\d+)/', $message, $matches) === 1) {
+                    $updated += (int)$matches[1];
+                }
+            } catch (Throwable $e) {
+                $name = IPS_GetName($instanceId);
+                $errors[] = $name . ': ' . $e->getMessage();
+            }
+        }
+
+        $text = "Statuswerte aktualisiert
+" .
+            "Geräte geprüft: " . count($instanceIds) . "
+" .
+            "Variablen aktualisiert: " . $updated;
+
+        if (count($errors) > 0) {
+            $text .= "
+
+Fehler:
+" . implode("
+", array_slice($errors, 0, 10));
+            if (count($errors) > 10) {
+                $text .= "
+... weitere " . (count($errors) - 10) . " Fehler";
+            }
+        }
+
+        return $text;
     }
 
     private function CreateApi(): SymconLoxoneAPI

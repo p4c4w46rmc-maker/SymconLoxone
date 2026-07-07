@@ -59,6 +59,90 @@ class LoxoneDevice extends IPSModule
             "States: " . count($states);
     }
 
+
+
+    public function RefreshStateValues()
+    {
+        $gatewayId = $this->ReadPropertyInteger('GatewayID');
+        if ($gatewayId <= 0 || !IPS_InstanceExists($gatewayId)) {
+            return "Kein gültiges Gateway hinterlegt.";
+        }
+
+        $states = $this->DecodeJsonObject($this->ReadPropertyString('StatesJson'));
+        $updated = 0;
+        $errors = [];
+
+        foreach ($states as $stateName => $stateUuid) {
+            $stateName = (string)$stateName;
+            $stateUuid = (string)$stateUuid;
+            $ident = 'State_' . $this->IdentFromString($stateName);
+
+            if (!$this->HasVariableWithIdent($ident)) {
+                continue;
+            }
+
+            try {
+                $rawValue = LOX_GetStateValue($gatewayId, $stateUuid);
+                $this->SetTypedStateValue($ident, $rawValue);
+                $updated++;
+            } catch (Throwable $e) {
+                $errors[] = $stateName . ': ' . $e->getMessage();
+            }
+        }
+
+        $text = "Statuswerte aktualisiert
+" .
+            "Control: " . $this->ReadPropertyString('ControlName') . "
+" .
+            "Aktualisiert: " . $updated;
+
+        if (count($errors) > 0) {
+            $text .= "
+Fehler: " . count($errors) . "
+" . implode("
+", array_slice($errors, 0, 5));
+        }
+
+        return $text;
+    }
+
+    private function SetTypedStateValue(string $ident, $rawValue): void
+    {
+        $variableId = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+        if ($variableId === false) {
+            return;
+        }
+
+        $variable = IPS_GetVariable($variableId);
+        $type = (int)$variable['VariableType'];
+
+        switch ($type) {
+            case 0:
+                if (is_bool($rawValue)) {
+                    $value = $rawValue;
+                } elseif (is_numeric($rawValue)) {
+                    $value = ((float)$rawValue) != 0.0;
+                } else {
+                    $value = in_array(strtolower((string)$rawValue), ['1', 'true', 'on', 'ein', 'yes'], true);
+                }
+                SetValueBoolean($variableId, $value);
+                break;
+            case 1:
+                SetValueInteger($variableId, (int)$rawValue);
+                break;
+            case 2:
+                SetValueFloat($variableId, (float)$rawValue);
+                break;
+            case 3:
+                if (is_array($rawValue) || is_object($rawValue)) {
+                    SetValueString($variableId, json_encode($rawValue, JSON_UNESCAPED_UNICODE));
+                } else {
+                    SetValueString($variableId, (string)$rawValue);
+                }
+                break;
+        }
+    }
+
     private function RegisterStateVariables(): void
     {
         $states = $this->DecodeJsonObject($this->ReadPropertyString('StatesJson'));
