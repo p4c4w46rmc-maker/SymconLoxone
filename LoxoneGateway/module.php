@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../libs/LoxoneAPI.php';
 require_once __DIR__ . '/../libs/LoxoneWebSocket.php';
+require_once __DIR__ . '/../libs/LoxoneAuth.php';
 
 class LoxoneGateway extends IPSModule
 {
@@ -35,6 +36,8 @@ class LoxoneGateway extends IPSModule
         $this->RegisterVariableString('LastWebSocketHandshake', 'Letzter WebSocket Handshake', '', 120);
         $this->RegisterVariableInteger('LastWebSocketFrameCount', 'Letzte WebSocket Frames', '', 130);
         $this->RegisterVariableString('LastWebSocketPayload', 'Letzte WebSocket Nachricht', '', 140);
+        $this->RegisterVariableString('TokenAuthStatus', 'Token Auth Status', '', 150);
+        $this->RegisterVariableString('LastTokenInfo', 'Letzte Token Info', '', 160);
     }
 
     public function ApplyChanges()
@@ -847,9 +850,102 @@ Fehler: " . count($errors) . "
         }
     }
 
+
+    public function TestTokenAuthentication()
+    {
+        try {
+            $auth = $this->CreateAuth();
+            $result = $auth->testLegacyTokenAcquisition();
+
+            $this->SetValue('TokenAuthStatus', (string)($result['status'] ?? 'unbekannt'));
+            $this->SetValue('LastTokenInfo', substr(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE), 0, 4000));
+
+            $lines = [];
+            $lines[] = 'Token Auth Test abgeschlossen';
+            $lines[] = 'getkey2: Code ' . (string)($result['getkey2Code'] ?? '?');
+            $lines[] = 'Hash-Algorithmus: ' . (string)($result['hashAlg'] ?? '?');
+            $lines[] = 'Key-Länge: ' . (string)($result['keyLength'] ?? '?');
+            $lines[] = 'Salt-Länge: ' . (string)($result['saltLength'] ?? '?');
+            $lines[] = 'PasswordHash: ' . ((bool)($result['passwordHashCreated'] ?? false) ? 'OK' : 'Fehler');
+            $lines[] = 'LoginHash: ' . ((bool)($result['loginHashCreated'] ?? false) ? 'OK' : 'Fehler');
+            $lines[] = '';
+            $lines[] = 'Legacy Token Request: Code ' . (string)($result['tokenCode'] ?? '?');
+            $lines[] = 'Status: ' . (string)($result['status'] ?? '');
+
+            if (!empty($result['note'])) {
+                $lines[] = '';
+                $lines[] = (string)$result['note'];
+            }
+
+            if (!empty($result['tokenPreview'])) {
+                $lines[] = '';
+                $lines[] = 'Token erkannt: ' . (string)$result['tokenPreview'];
+            }
+
+            if (!empty($result['rawTokenResponse'])) {
+                $lines[] = '';
+                $lines[] = 'Antwort:';
+                $lines[] = substr((string)$result['rawTokenResponse'], 0, 1500);
+            }
+
+            return implode("\n", $lines);
+        } catch (Throwable $e) {
+            $this->SetValue('TokenAuthStatus', 'Fehler: ' . $e->getMessage());
+            return "Fehler beim Token Auth Test:\n" . $e->getMessage();
+        }
+    }
+
+    public function TestWebSocketAuthCommand()
+    {
+        try {
+            $auth = $this->CreateAuth();
+            $tokenResult = $auth->testLegacyTokenAcquisition();
+            $token = (string)($tokenResult['token'] ?? '');
+            if ($token === '') {
+                return "Kein Token erhalten. Bitte zuerst 'Token Auth testen' prüfen.\n\n" . substr(json_encode($tokenResult, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE), 0, 2000);
+            }
+
+            $keyInfo = $auth->getKey2();
+            $hash = $auth->hashTokenForAuthentication($token, $keyInfo);
+            $user = rawurlencode($this->ReadPropertyString('Username'));
+            $command = 'authwithtoken/' . $hash . '/' . $user;
+
+            $ws = $this->CreateWebSocket();
+            $result = $ws->sendCommandAndRead($command, 5, 6);
+            $frames = is_array($result['frames'] ?? null) ? $result['frames'] : [];
+            $this->SetValue('LastWebSocketFrameCount', count($frames));
+            $this->SetValue('LiveEngineStatus', 'WebSocket Auth Command ausgeführt');
+
+            $lines = [];
+            $lines[] = 'WebSocket Token Auth Command abgeschlossen';
+            $lines[] = 'Frames: ' . count($frames);
+            $lines[] = 'Command: authwithtoken/<hash>/<user>';
+            $lines[] = '';
+            foreach ($frames as $i => $frame) {
+                $lines[] = sprintf('#%d opcode=%d length=%d %s', $i + 1, (int)($frame['opcode'] ?? -1), (int)($frame['length'] ?? 0), (string)($frame['preview'] ?? ''));
+            }
+
+            return implode("\n\n", $lines);
+        } catch (Throwable $e) {
+            $this->SetValue('LiveEngineStatus', 'WebSocket Auth Fehler: ' . $e->getMessage());
+            return "Fehler beim WebSocket Auth Command:\n" . $e->getMessage();
+        }
+    }
+
     private function CreateWebSocket(): SymconLoxoneWebSocket
     {
         return new SymconLoxoneWebSocket(
+            trim($this->ReadPropertyString('Host')),
+            $this->ReadPropertyInteger('Port'),
+            $this->ReadPropertyBoolean('UseHttps'),
+            $this->ReadPropertyString('Username'),
+            $this->ReadPropertyString('Password')
+        );
+    }
+
+    private function CreateAuth(): SymconLoxoneAuth
+    {
+        return new SymconLoxoneAuth(
             trim($this->ReadPropertyString('Host')),
             $this->ReadPropertyInteger('Port'),
             $this->ReadPropertyBoolean('UseHttps'),

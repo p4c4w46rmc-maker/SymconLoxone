@@ -87,8 +87,18 @@
       "onClick": "echo LOX_TestWebSocketCommand($id);"
     },
     {
+      "type": "Button",
+      "caption": "Token Auth testen",
+      "onClick": "echo LOX_TestTokenAuthentication($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "WebSocket Token Auth testen",
+      "onClick": "echo LOX_TestWebSocketAuthCommand($id);"
+    },
+    {
       "type": "Label",
-      "caption": "Sprint 7.3: WebSocket-Frames lesen. Der Command-Test sendet jdev/cfg/version und zeigt die empfangenen Frames."
+      "caption": "Sprint 8: Token-Authentifizierung. Zuerst Token Auth testen, danach WebSocket Token Auth testen."
     }
   ]
 }
