@@ -136,6 +136,199 @@ class SymconLoxoneWebSocket
         return $this->summarizeProbe($handshake, $frames, 'ok');
     }
 
+
+
+    /**
+     * Authenticates, enables binary status updates, decodes value-state packets
+     * and returns decoded updates for a bounded diagnostic window.
+     *
+     * This is intentionally still a probe, but it uses the real Loxone binary
+     * value-state format: 16 byte UUID + 8 byte little-endian double.
+     */
+    public function authenticatedDecodeProbe(string $authCommand, array $stateIndex, int $readSeconds = 10): array
+    {
+        $socket = $this->openSocket(max(5, $readSeconds));
+        $handshake = $this->performHandshake($socket, max(5, $readSeconds));
+        if ((int)($handshake['statusCode'] ?? 0) !== 101) {
+            fclose($socket);
+            throw new RuntimeException('WebSocket Handshake fehlgeschlagen: ' . (string)($handshake['statusLine'] ?? ''));
+        }
+
+        $frames = [];
+        $decodedUpdates = [];
+        $knownUpdates = 0;
+        $unknownUpdates = 0;
+        $packetTypes = [];
+        $pendingHeader = null;
+
+        // Authenticate with token.
+        $this->writeFrame($socket, $authCommand);
+        for ($i = 0; $i < 5; $i++) {
+            $frame = $this->readFrame($socket, 2);
+            if ($frame === null) {
+                break;
+            }
+            $frame['stage'] = 'auth';
+            $frame['binaryInfo'] = $this->decodeBinaryInfo((string)$frame['payload']);
+            $frames[] = $frame;
+
+            if ((int)$frame['opcode'] === 8) {
+                fclose($socket);
+                return $this->summarizeDecodeProbe($handshake, $frames, $decodedUpdates, $knownUpdates, $unknownUpdates, $packetTypes, 'closed during auth');
+            }
+
+            if ((int)$frame['opcode'] === 1 && str_contains((string)$frame['payload'], 'validUntil')) {
+                break;
+            }
+        }
+
+        // Enable binary live state updates.
+        $this->writeFrame($socket, 'jdev/sps/enablebinstatusupdate');
+
+        $start = time();
+        while ((time() - $start) < $readSeconds) {
+            $frame = $this->readFrame($socket, 1);
+            if ($frame === null) {
+                continue;
+            }
+
+            $frame['stage'] = 'live';
+            $frame['binaryInfo'] = $this->decodeBinaryInfo((string)$frame['payload']);
+            $frames[] = $frame;
+
+            if ((int)$frame['opcode'] === 8) {
+                break;
+            }
+
+            if ((int)$frame['opcode'] !== 2) {
+                continue;
+            }
+
+            $payload = (string)$frame['payload'];
+            $length = strlen($payload);
+
+            // Loxone often sends the 8 byte binary package header as its own
+            // WebSocket frame, followed by one frame containing the body.
+            if ($length === 8) {
+                $pendingHeader = $this->parseLoxoneBinaryHeader($payload);
+                $packetTypes[] = $pendingHeader['type'];
+                continue;
+            }
+
+            if ($pendingHeader !== null) {
+                $type = (int)$pendingHeader['type'];
+                $body = $payload;
+                $pendingHeader = null;
+
+                // 0x0203 / decimal 515: value-state event packet.
+                if ($type === 515) {
+                    foreach ($this->decodeValueStatePacket($body) as $update) {
+                        $uuid = (string)$update['uuid'];
+                        $value = (float)$update['value'];
+                        $known = isset($stateIndex[$uuid]);
+                        if ($known) {
+                            $knownUpdates++;
+                        } else {
+                            $unknownUpdates++;
+                        }
+                        $update['known'] = $known;
+                        $update['stateName'] = $known ? (string)($stateIndex[$uuid]['stateName'] ?? '') : '';
+                        $update['controlName'] = $known ? (string)($stateIndex[$uuid]['controlName'] ?? '') : '';
+                        $update['variableId'] = $known ? (int)($stateIndex[$uuid]['variableId'] ?? 0) : 0;
+                        $decodedUpdates[] = $update;
+                    }
+                }
+            }
+        }
+
+        fclose($socket);
+        return $this->summarizeDecodeProbe($handshake, $frames, $decodedUpdates, $knownUpdates, $unknownUpdates, $packetTypes, 'ok');
+    }
+
+    private function summarizeDecodeProbe(array $handshake, array $frames, array $decodedUpdates, int $knownUpdates, int $unknownUpdates, array $packetTypes, string $status): array
+    {
+        $text = 0;
+        $binary = 0;
+        $close = 0;
+        foreach ($frames as $frame) {
+            $opcode = (int)($frame['opcode'] ?? -1);
+            if ($opcode === 1) {
+                $text++;
+            } elseif ($opcode === 2) {
+                $binary++;
+            } elseif ($opcode === 8) {
+                $close++;
+            }
+        }
+
+        return [
+            'url' => $this->getUrl(),
+            'status' => $status,
+            'handshake' => $handshake,
+            'frameCount' => count($frames),
+            'textFrames' => $text,
+            'binaryFrames' => $binary,
+            'closeFrames' => $close,
+            'packetTypes' => array_values(array_unique($packetTypes)),
+            'decodedUpdates' => $decodedUpdates,
+            'decodedCount' => count($decodedUpdates),
+            'knownUpdates' => $knownUpdates,
+            'unknownUpdates' => $unknownUpdates,
+            'frames' => $frames
+        ];
+    }
+
+    private function parseLoxoneBinaryHeader(string $payload): array
+    {
+        $header = unpack('Vtype/Vsize', $payload);
+        return [
+            'type' => (int)($header['type'] ?? 0),
+            'size' => (int)($header['size'] ?? 0)
+        ];
+    }
+
+    private function decodeValueStatePacket(string $body): array
+    {
+        $updates = [];
+        $entrySize = 24;
+        $count = intdiv(strlen($body), $entrySize);
+        for ($i = 0; $i < $count; $i++) {
+            $offset = $i * $entrySize;
+            $uuidBytes = substr($body, $offset, 16);
+            $valueBytes = substr($body, $offset + 16, 8);
+            if (strlen($uuidBytes) !== 16 || strlen($valueBytes) !== 8) {
+                continue;
+            }
+            $updates[] = [
+                'uuid' => $this->decodeLoxoneUuid($uuidBytes),
+                'value' => $this->decodeLittleEndianDouble($valueBytes)
+            ];
+        }
+        return $updates;
+    }
+
+    private function decodeLoxoneUuid(string $bytes): string
+    {
+        return strtolower(
+            bin2hex(strrev(substr($bytes, 0, 4))) . '-' .
+            bin2hex(strrev(substr($bytes, 4, 2))) . '-' .
+            bin2hex(strrev(substr($bytes, 6, 2))) . '-' .
+            bin2hex(substr($bytes, 8, 2)) . '-' .
+            bin2hex(substr($bytes, 10, 6))
+        );
+    }
+
+    private function decodeLittleEndianDouble(string $bytes): float
+    {
+        $value = @unpack('evalue', $bytes);
+        if (is_array($value) && isset($value['value'])) {
+            return (float)$value['value'];
+        }
+        // Fallback for environments without the explicit little-endian format.
+        $value = unpack('dvalue', $bytes);
+        return (float)($value['value'] ?? 0.0);
+    }
+
     private function summarizeProbe(array $handshake, array $frames, string $status): array
     {
         $text = 0;

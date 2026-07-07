@@ -1003,6 +1003,111 @@ Fehler: " . count($errors) . "
         }
     }
 
+
+
+    public function TestWebSocketDecodeProbe()
+    {
+        try {
+            $index = $this->GetStateIndex();
+            if (count($index) === 0) {
+                $index = $this->CreateStateIndex();
+                $this->SetBuffer('StateIndexJson', json_encode($index, JSON_UNESCAPED_UNICODE));
+                $this->SetValue('StateIndexSize', count($index));
+            }
+
+            $auth = $this->CreateAuth();
+            $tokenResult = $auth->testLegacyTokenAcquisition();
+            $token = (string)($tokenResult['token'] ?? '');
+            if ($token === '') {
+                return "Kein Token erhalten. Bitte zuerst 'Token Auth testen' prüfen.\n\n" . substr(json_encode($tokenResult, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE), 0, 2000);
+            }
+
+            $keyInfo = $auth->getKey2();
+            $hash = $auth->hashTokenForAuthentication($token, $keyInfo);
+            $user = rawurlencode($this->ReadPropertyString('Username'));
+            $authCommand = 'authwithtoken/' . $hash . '/' . $user;
+
+            $ws = $this->CreateWebSocket();
+            $result = $ws->authenticatedDecodeProbe($authCommand, $index, 10);
+            $updates = is_array($result['decodedUpdates'] ?? null) ? $result['decodedUpdates'] : [];
+
+            $applied = 0;
+            $known = 0;
+            $unknown = 0;
+            $examples = [];
+
+            foreach ($updates as $update) {
+                $uuid = (string)($update['uuid'] ?? '');
+                $value = (float)($update['value'] ?? 0.0);
+                if ($uuid === '') {
+                    continue;
+                }
+
+                if (isset($index[$uuid])) {
+                    $known++;
+                    if ($this->ApplyLiveStateValue($uuid, $value)) {
+                        $applied++;
+                    }
+                    if (count($examples) < 12) {
+                        $examples[] = sprintf(
+                            '%s / %s = %s (%s)',
+                            (string)($index[$uuid]['controlName'] ?? ''),
+                            (string)($index[$uuid]['stateName'] ?? ''),
+                            $this->FormatFloatForOutput($value),
+                            $uuid
+                        );
+                    }
+                } else {
+                    $unknown++;
+                    if (count($examples) < 12) {
+                        $examples[] = sprintf('Unbekannt = %s (%s)', $this->FormatFloatForOutput($value), $uuid);
+                    }
+                }
+            }
+
+            $frameCount = (int)($result['frameCount'] ?? 0);
+            $binaryFrames = (int)($result['binaryFrames'] ?? 0);
+            $decodedCount = (int)($result['decodedCount'] ?? count($updates));
+            $packetTypes = is_array($result['packetTypes'] ?? null) ? $result['packetTypes'] : [];
+
+            $this->SetValue('LiveProbeFrames', $frameCount);
+            $this->SetValue('LiveProbeBinaryFrames', $binaryFrames);
+            $this->SetValue('LastWebSocketFrameCount', $frameCount);
+            $this->SetValue('LiveEngineStatus', 'LiveEngine Decoder: ' . $applied . ' Werte angewendet');
+            $this->SetValue('LastLiveUpdate', date('Y-m-d H:i:s'));
+
+            $lines = [];
+            $lines[] = 'LiveEngine Decoder Probe abgeschlossen';
+            $lines[] = 'Frames gesamt: ' . $frameCount;
+            $lines[] = 'Binary-Frames: ' . $binaryFrames;
+            $lines[] = 'Paket-Typen: ' . (count($packetTypes) ? implode(', ', array_map('strval', $packetTypes)) : '-');
+            $lines[] = 'Dekodierte Value-Updates: ' . $decodedCount;
+            $lines[] = 'Bekannte StateUUIDs: ' . $known;
+            $lines[] = 'Unbekannte StateUUIDs: ' . $unknown;
+            $lines[] = 'In Symcon angewendet: ' . $applied;
+            $lines[] = '';
+            $lines[] = 'Beispiele:';
+            $lines[] = count($examples) ? implode("\n", $examples) : '- noch keine passenden Value-State-Events im Zeitfenster -';
+
+            $summary = implode("\n", $lines);
+            $this->SetValue('LastLiveProbeSummary', substr($summary, 0, 4000));
+            $this->SetValue('LastWebSocketPayload', substr(json_encode(array_slice($updates, 0, 20), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE), 0, 4000));
+
+            return $summary;
+        } catch (Throwable $e) {
+            $this->SetValue('LiveEngineStatus', 'LiveEngine Decoder Fehler: ' . $e->getMessage());
+            return "Fehler bei LiveEngine Decoder Probe:\n" . $e->getMessage();
+        }
+    }
+
+    private function FormatFloatForOutput(float $value): string
+    {
+        if (abs($value - round($value)) < 0.0000001) {
+            return (string)(int)round($value);
+        }
+        return rtrim(rtrim(sprintf('%.6F', $value), '0'), '.');
+    }
+
     private function CreateWebSocket(): SymconLoxoneWebSocket
     {
         return new SymconLoxoneWebSocket(

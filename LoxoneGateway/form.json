@@ -102,8 +102,13 @@
       "onClick": "echo LOX_TestWebSocketLiveProbe($id);"
     },
     {
+      "type": "Button",
+      "caption": "LiveEngine Decoder Probe",
+      "onClick": "echo LOX_TestWebSocketDecodeProbe($id);"
+    },
+    {
       "type": "Label",
-      "caption": "Sprint 9: WebSocket LiveEngine Probe. Erst State-Index erstellen, dann Token Auth testen, dann LiveEngine Probe starten."
+      "caption": "Sprint 10: Binärdecoder für Value-State-Pakete. Erst State-Index erstellen, dann LiveEngine Decoder Probe starten."
     }
   ]
 }
