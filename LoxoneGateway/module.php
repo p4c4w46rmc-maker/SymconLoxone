@@ -631,6 +631,17 @@ Fehler: " . count($errors) . "
         return true;
     }
 
+    private function NormalizeLoxoneUuid(string $uuid): string
+    {
+        $uuid = strtolower(trim($uuid));
+        // Convert accidental RFC4122-style 8-4-4-4-12 formatting to
+        // Loxone's native 8-4-4-16 format.
+        if (preg_match('/^([0-9a-f]{8})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{12})$/', $uuid, $m)) {
+            return $m[1] . '-' . $m[2] . '-' . $m[3] . '-' . $m[4] . $m[5];
+        }
+        return $uuid;
+    }
+
     private function GetStateIndex(): array
     {
         $json = $this->GetBuffer('StateIndexJson');
@@ -662,11 +673,13 @@ Fehler: " . count($errors) . "
                     continue;
                 }
 
-                $index[(string)$stateUuid] = [
+                $normalizedStateUuid = $this->NormalizeLoxoneUuid((string)$stateUuid);
+                $index[$normalizedStateUuid] = [
                     'instanceId' => $instanceId,
                     'variableId' => $variableId,
                     'stateName' => (string)$stateName,
-                    'stateUuid' => (string)$stateUuid,
+                    'stateUuid' => $normalizedStateUuid,
+                    'originalStateUuid' => (string)$stateUuid,
                     'controlName' => (string)IPS_GetProperty($instanceId, 'ControlName'),
                     'controlType' => (string)IPS_GetProperty($instanceId, 'ControlType')
                 ];
@@ -1037,7 +1050,7 @@ Fehler: " . count($errors) . "
             $examples = [];
 
             foreach ($updates as $update) {
-                $uuid = (string)($update['uuid'] ?? '');
+                $uuid = $this->NormalizeLoxoneUuid((string)($update['uuid'] ?? ''));
                 $value = (float)($update['value'] ?? 0.0);
                 if ($uuid === '') {
                     continue;

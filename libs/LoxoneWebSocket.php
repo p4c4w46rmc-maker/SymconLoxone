@@ -309,12 +309,19 @@ class SymconLoxoneWebSocket
 
     private function decodeLoxoneUuid(string $bytes): string
     {
+        // Loxone stores UUIDs in LoxAPP3 as 8-4-4-16 hex groups,
+        // for example: 1c010c72-0114-994b-05ff68530e15480b
+        //
+        // The first three groups are little-endian in the binary event
+        // stream. The last 8 bytes are kept as one continuous 16 hex
+        // character tail. A previous decoder used RFC4122-style
+        // 8-4-4-4-12 formatting, which produced visually plausible UUIDs
+        // but did not match the LoxAPP3 state IDs.
         return strtolower(
             bin2hex(strrev(substr($bytes, 0, 4))) . '-' .
             bin2hex(strrev(substr($bytes, 4, 2))) . '-' .
             bin2hex(strrev(substr($bytes, 6, 2))) . '-' .
-            bin2hex(substr($bytes, 8, 2)) . '-' .
-            bin2hex(substr($bytes, 10, 6))
+            bin2hex(substr($bytes, 8, 8))
         );
     }
 

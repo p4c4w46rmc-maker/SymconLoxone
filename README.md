@@ -1,15 +1,5 @@
-# SymconLoxone
+# SymconLoxone Sprint 10.1
 
-Sprint 10: Binary Value-State Decoder.
+Fix: Loxone UUID decoding now uses the native 8-4-4-16 format from LoxAPP3 instead of RFC4122 8-4-4-4-12 formatting.
 
-Neu:
-- Dekodiert Loxone Value-State-Pakete (16 Byte UUID + 8 Byte Double)
-- Wandelt Loxone Binary UUIDs in normale UUIDs um
-- Verknüpft StateUUID mit dem State-Index
-- Schreibt erste Live-Werte direkt in Symcon-Variablen
-
-Testreihenfolge:
-1. State-Index erstellen
-2. Token Auth testen
-3. WebSocket Token Auth testen
-4. LiveEngine Decoder Probe
+Expected result: Known StateUUIDs should now increase and matching live values should be written to Symcon variables.

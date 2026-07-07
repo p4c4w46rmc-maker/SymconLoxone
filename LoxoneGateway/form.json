@@ -108,7 +108,7 @@
     },
     {
       "type": "Label",
-      "caption": "Sprint 10: Binärdecoder für Value-State-Pakete. Erst State-Index erstellen, dann LiveEngine Decoder Probe starten."
+      "caption": "Sprint 10.1: Loxone-UUID-Konverter 8-4-4-16. Erst State-Index erstellen, dann LiveEngine Decoder Probe starten."
     }
   ]
 }
