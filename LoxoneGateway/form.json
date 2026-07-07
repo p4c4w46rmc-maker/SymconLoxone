@@ -1,0 +1,43 @@
+{
+  "elements": [
+    {
+      "type": "ValidationTextBox",
+      "name": "Host",
+      "caption": "Miniserver IP / Host"
+    },
+    {
+      "type": "NumberSpinner",
+      "name": "Port",
+      "caption": "Port",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    {
+      "type": "CheckBox",
+      "name": "UseHttps",
+      "caption": "HTTPS verwenden"
+    },
+    {
+      "type": "ValidationTextBox",
+      "name": "Username",
+      "caption": "Benutzer"
+    },
+    {
+      "type": "PasswordTextBox",
+      "name": "Password",
+      "caption": "Passwort"
+    }
+  ],
+  "actions": [
+    {
+      "type": "Button",
+      "caption": "Verbindung testen",
+      "onClick": "echo LOX_TestConnection($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "Miniserver auslesen",
+      "onClick": "echo LOX_ReadMiniserver($id);"
+    }
+  ]
+}

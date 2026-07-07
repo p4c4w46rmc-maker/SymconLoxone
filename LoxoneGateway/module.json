@@ -1,0 +1,14 @@
+{
+  "id": "{F1E52F76-2A3A-4C72-9C8E-8B9D5BEB8C01}",
+  "name": "Loxone Gateway",
+  "type": 3,
+  "vendor": "Loxone",
+  "aliases": [
+    "Loxone Gateway"
+  ],
+  "url": "https://github.com/p4c4w46rmc-maker/SymconLoxone",
+  "parentRequirements": [],
+  "childRequirements": [],
+  "implemented": [],
+  "prefix": "LOX"
+}
