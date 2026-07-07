@@ -1121,6 +1121,40 @@ Fehler: " . count($errors) . "
         return rtrim(rtrim(sprintf('%.6F', $value), '0'), '.');
     }
 
+
+    public function SendControlCommand(string $actionUuid, string $command)
+    {
+        $actionUuid = trim($actionUuid);
+        $command = trim($command);
+
+        if ($actionUuid === '') {
+            throw new RuntimeException('ActionUUID ist leer.');
+        }
+        if ($command === '') {
+            throw new RuntimeException('Befehl ist leer.');
+        }
+
+        $api = $this->CreateApi();
+        return $api->sendIoCommandChecked($actionUuid, $command);
+    }
+
+    public function TestCommand(string $actionUuid = '', string $command = 'pulse')
+    {
+        if (trim($actionUuid) === '') {
+            return "Bitte eine ActionUUID übergeben, z. B. aus einer Loxone Device Instanz.";
+        }
+
+        try {
+            $value = $this->SendControlCommand($actionUuid, $command);
+            return "Befehl gesendet\n" .
+                "ActionUUID: " . $actionUuid . "\n" .
+                "Befehl: " . $command . "\n" .
+                "Antwort: " . (is_array($value) ? json_encode($value, JSON_UNESCAPED_UNICODE) : (string)$value);
+        } catch (Throwable $e) {
+            return "Befehl fehlgeschlagen\n" . $e->getMessage();
+        }
+    }
+
     private function CreateWebSocket(): SymconLoxoneWebSocket
     {
         return new SymconLoxoneWebSocket(

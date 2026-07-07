@@ -34,6 +34,35 @@ class SymconLoxoneAPI
         return $this->getJson('/jdev/sps/io/' . rawurlencode($uuidOrName));
     }
 
+    public function sendIoCommand(string $uuidOrName, string $command): array
+    {
+        $uuidOrName = trim($uuidOrName);
+        $command = trim($command);
+        if ($uuidOrName === '') {
+            throw new RuntimeException('UUID ist leer.');
+        }
+        if ($command === '') {
+            throw new RuntimeException('Befehl ist leer.');
+        }
+
+        return $this->getJson('/jdev/sps/io/' . rawurlencode($uuidOrName) . '/' . rawurlencode($command));
+    }
+
+    public function sendIoCommandChecked(string $uuidOrName, string $command)
+    {
+        $response = $this->sendIoCommand($uuidOrName, $command);
+        if (!isset($response['LL'])) {
+            throw new RuntimeException('Loxone Antwort enthält keinen LL-Block.');
+        }
+
+        $code = (string)($response['LL']['Code'] ?? '');
+        if ($code !== '200') {
+            throw new RuntimeException('Loxone IO Befehl Antwortcode ist ' . $code . ': ' . json_encode($response, JSON_UNESCAPED_UNICODE));
+        }
+
+        return $response['LL']['value'] ?? null;
+    }
+
     public function getIoValue(string $uuidOrName)
     {
         $response = $this->getIo($uuidOrName);

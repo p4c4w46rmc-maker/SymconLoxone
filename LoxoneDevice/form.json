@@ -15,6 +15,15 @@
       "type": "Button",
       "caption": "Statuswerte aktualisieren",
       "onClick": "echo LOXD_RefreshStateValues($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "Standardbefehl testen",
+      "onClick": "echo LOXD_TestCommand($id);"
+    },
+    {
+      "type": "Label",
+      "caption": "Sprint 11: Pushbutton/Switch über ActionUUID steuern. Aktive Variable ist bei Switch/Pushbutton bedienbar."
     }
   ]
 }

@@ -106,6 +106,99 @@ Fehler: " . count($errors) . "
         return $text;
     }
 
+
+    public function RequestAction($ident, $value)
+    {
+        if ((string)$ident === 'State_active') {
+            $controlType = strtolower($this->ReadPropertyString('ControlType'));
+            if ($controlType === 'switch') {
+                if ((bool)$value) {
+                    $this->SwitchOn();
+                } else {
+                    $this->SwitchOff();
+                }
+                $this->SetValue('State_active', (bool)$value);
+                return;
+            }
+
+            if ($controlType === 'pushbutton') {
+                $this->Press();
+                return;
+            }
+        }
+
+        throw new Exception('Keine Aktion für ' . (string)$ident . ' verfügbar.');
+    }
+
+    public function SendCommand(string $command)
+    {
+        $gatewayId = $this->ReadPropertyInteger('GatewayID');
+        if ($gatewayId <= 0 || !IPS_InstanceExists($gatewayId)) {
+            throw new RuntimeException('Kein gültiges Gateway hinterlegt.');
+        }
+
+        $actionUuid = trim($this->ReadPropertyString('ActionUUID'));
+        if ($actionUuid === '') {
+            throw new RuntimeException('Keine ActionUUID hinterlegt.');
+        }
+
+        return LOX_SendControlCommand($gatewayId, $actionUuid, $command);
+    }
+
+    public function Press()
+    {
+        return $this->SendCommand('pulse');
+    }
+
+    public function SwitchOn()
+    {
+        return $this->SendCommand('on');
+    }
+
+    public function SwitchOff()
+    {
+        return $this->SendCommand('off');
+    }
+
+    public function Toggle()
+    {
+        $controlType = strtolower($this->ReadPropertyString('ControlType'));
+        if ($controlType === 'pushbutton') {
+            return $this->Press();
+        }
+
+        return $this->SendCommand('pulse');
+    }
+
+    public function TestCommand()
+    {
+        $type = strtolower($this->ReadPropertyString('ControlType'));
+        try {
+            if ($type === 'switch') {
+                $result = $this->Toggle();
+                $command = 'pulse';
+            } elseif ($type === 'pushbutton') {
+                $result = $this->Press();
+                $command = 'pulse';
+            } else {
+                return "Für diesen Control-Typ ist in Sprint 11 noch kein Standardbefehl hinterlegt.\n" .
+                    "Typ: " . $this->ReadPropertyString('ControlType');
+            }
+
+            return "Befehl gesendet\n" .
+                "Control: " . $this->ReadPropertyString('ControlName') . "\n" .
+                "Typ: " . $this->ReadPropertyString('ControlType') . "\n" .
+                "ActionUUID: " . $this->ReadPropertyString('ActionUUID') . "\n" .
+                "Befehl: " . $command . "\n" .
+                "Antwort: " . (is_array($result) ? json_encode($result, JSON_UNESCAPED_UNICODE) : (string)$result);
+        } catch (Throwable $e) {
+            return "Befehl fehlgeschlagen\n" .
+                "Control: " . $this->ReadPropertyString('ControlName') . "\n" .
+                "Typ: " . $this->ReadPropertyString('ControlType') . "\n" .
+                "Fehler: " . $e->getMessage();
+        }
+    }
+
     private function SetTypedStateValue(string $ident, $rawValue): void
     {
         $variableId = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
@@ -164,6 +257,9 @@ Fehler: " . count($errors) . "
             switch ($type) {
                 case 0:
                     $this->RegisterVariableBoolean($ident, $caption, '~Switch', $position);
+                    if ($stateName === 'active' && in_array(strtolower($controlType), ['switch', 'pushbutton'], true)) {
+                        $this->EnableAction($ident);
+                    }
                     $this->SetValue($ident, false);
                     break;
                 case 1:

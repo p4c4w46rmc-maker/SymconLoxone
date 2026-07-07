@@ -1,5 +1,21 @@
-# SymconLoxone Sprint 10.1
+# SymconLoxone
 
-Fix: Loxone UUID decoding now uses the native 8-4-4-16 format from LoxAPP3 instead of RFC4122 8-4-4-4-12 formatting.
+Sprint 11: Erste bidirektionale Steuerung.
 
-Expected result: Known StateUUIDs should now increase and matching live values should be written to Symcon variables.
+## Neu
+
+- Loxone Device kann Standardbefehle senden
+- Pushbutton: `pulse`
+- Switch: `on`, `off`, `pulse`
+- Gateway-Methode `LOX_SendControlCommand()`
+- Device-Methoden `LOXD_Press()`, `LOXD_SwitchOn()`, `LOXD_SwitchOff()`, `LOXD_Toggle()`
+- Bei Switch/Pushbutton wird die Variable `active` als Aktion aktiviert
+
+## Test
+
+1. Modul aktualisieren
+2. Geräte-Instanzen prüfen
+3. Einen ungefährlichen Pushbutton/Switch auswählen
+4. In der Device-Instanz auf **Standardbefehl testen** klicken
+
+Hinweis: Garagentore/Alarm bitte erst testen, wenn klar ist, welches Control ausgelöst wird.
