@@ -33,6 +33,8 @@ class LoxoneGateway extends IPSModule
         $this->RegisterVariableString('LastLiveUpdate', 'Letztes Live-Update', '', 100);
         $this->RegisterVariableString('WebSocketUrl', 'WebSocket URL', '', 110);
         $this->RegisterVariableString('LastWebSocketHandshake', 'Letzter WebSocket Handshake', '', 120);
+        $this->RegisterVariableInteger('LastWebSocketFrameCount', 'Letzte WebSocket Frames', '', 130);
+        $this->RegisterVariableString('LastWebSocketPayload', 'Letzte WebSocket Nachricht', '', 140);
     }
 
     public function ApplyChanges()
@@ -804,6 +806,44 @@ Fehler: " . count($errors) . "
             $this->SetValue('LiveEngineStatus', 'WebSocket Fehler: ' . $e->getMessage());
             return "Fehler beim WebSocket Handshake:
 " . $e->getMessage();
+        }
+    }
+
+
+    public function TestWebSocketCommand()
+    {
+        try {
+            $ws = $this->CreateWebSocket();
+            $command = 'jdev/cfg/version';
+            $result = $ws->sendCommandAndRead($command, 5, 5);
+
+            $frames = is_array($result['frames'] ?? null) ? $result['frames'] : [];
+            $this->SetValue('WebSocketUrl', (string)($result['url'] ?? ''));
+            $this->SetValue('LastWebSocketFrameCount', count($frames));
+            $this->SetValue('LiveEngineStatus', 'WebSocket Command Test ausgeführt');
+            $this->SetValue('LastLiveUpdate', date('Y-m-d H:i:s'));
+
+            $lines = [];
+            $payloadForVariable = '';
+            foreach ($frames as $i => $frame) {
+                $opcode = (int)($frame['opcode'] ?? -1);
+                $length = (int)($frame['length'] ?? 0);
+                $preview = (string)($frame['preview'] ?? '');
+                $lines[] = sprintf('#%d opcode=%d length=%d %s', $i + 1, $opcode, $length, $preview);
+                if ($payloadForVariable === '' && $preview !== '') {
+                    $payloadForVariable = $preview;
+                }
+            }
+
+            $this->SetValue('LastWebSocketPayload', substr($payloadForVariable, 0, 4000));
+
+            return "WebSocket Command Test abgeschlossen\n" .
+                "Command: " . $command . "\n" .
+                "Frames: " . count($frames) . "\n\n" .
+                implode("\n\n", array_slice($lines, 0, 5));
+        } catch (Throwable $e) {
+            $this->SetValue('LiveEngineStatus', 'WebSocket Command Fehler: ' . $e->getMessage());
+            return "Fehler beim WebSocket Command Test:\n" . $e->getMessage();
         }
     }
 

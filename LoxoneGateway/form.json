@@ -82,8 +82,13 @@
       "onClick": "echo LOX_TestWebSocketHandshake($id);"
     },
     {
+      "type": "Button",
+      "caption": "WebSocket Command testen",
+      "onClick": "echo LOX_TestWebSocketCommand($id);"
+    },
+    {
       "type": "Label",
-      "caption": "Sprint 7.2: WebSocket-Handshake-Test. Nach erfolgreichem 101-Upgrade wird der permanente Listener implementiert."
+      "caption": "Sprint 7.3: WebSocket-Frames lesen. Der Command-Test sendet jdev/cfg/version und zeigt die empfangenen Frames."
     }
   ]
 }
