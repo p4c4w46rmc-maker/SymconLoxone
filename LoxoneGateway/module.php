@@ -38,6 +38,9 @@ class LoxoneGateway extends IPSModule
         $this->RegisterVariableString('LastWebSocketPayload', 'Letzte WebSocket Nachricht', '', 140);
         $this->RegisterVariableString('TokenAuthStatus', 'Token Auth Status', '', 150);
         $this->RegisterVariableString('LastTokenInfo', 'Letzte Token Info', '', 160);
+        $this->RegisterVariableInteger('LiveProbeFrames', 'LiveEngine Probe Frames', '', 170);
+        $this->RegisterVariableInteger('LiveProbeBinaryFrames', 'LiveEngine Binary Frames', '', 180);
+        $this->RegisterVariableString('LastLiveProbeSummary', 'Letzte LiveEngine Probe', '', 190);
     }
 
     public function ApplyChanges()
@@ -929,6 +932,74 @@ Fehler: " . count($errors) . "
         } catch (Throwable $e) {
             $this->SetValue('LiveEngineStatus', 'WebSocket Auth Fehler: ' . $e->getMessage());
             return "Fehler beim WebSocket Auth Command:\n" . $e->getMessage();
+        }
+    }
+
+
+
+    public function TestWebSocketLiveProbe()
+    {
+        try {
+            $auth = $this->CreateAuth();
+            $tokenResult = $auth->testLegacyTokenAcquisition();
+            $token = (string)($tokenResult['token'] ?? '');
+            if ($token === '') {
+                return "Kein Token erhalten. Bitte zuerst 'Token Auth testen' prüfen.\n\n" . substr(json_encode($tokenResult, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE), 0, 2000);
+            }
+
+            $keyInfo = $auth->getKey2();
+            $hash = $auth->hashTokenForAuthentication($token, $keyInfo);
+            $user = rawurlencode($this->ReadPropertyString('Username'));
+            $authCommand = 'authwithtoken/' . $hash . '/' . $user;
+
+            $ws = $this->CreateWebSocket();
+            $result = $ws->authenticatedLiveProbe($authCommand, 10);
+            $frames = is_array($result['frames'] ?? null) ? $result['frames'] : [];
+
+            $frameCount = (int)($result['frameCount'] ?? count($frames));
+            $binaryFrames = (int)($result['binaryFrames'] ?? 0);
+            $textFrames = (int)($result['textFrames'] ?? 0);
+            $liveFrames = (int)($result['liveFrames'] ?? 0);
+
+            $this->SetValue('LiveProbeFrames', $frameCount);
+            $this->SetValue('LiveProbeBinaryFrames', $binaryFrames);
+            $this->SetValue('LastWebSocketFrameCount', $frameCount);
+            $this->SetValue('LiveEngineStatus', 'LiveEngine Probe ausgeführt: ' . $frameCount . ' Frames');
+            $this->SetValue('LastLiveUpdate', date('Y-m-d H:i:s'));
+
+            $lines = [];
+            $lines[] = 'LiveEngine Probe abgeschlossen';
+            $lines[] = 'Frames gesamt: ' . $frameCount;
+            $lines[] = 'Live-Frames: ' . $liveFrames;
+            $lines[] = 'Text-Frames: ' . $textFrames;
+            $lines[] = 'Binary-Frames: ' . $binaryFrames;
+            $lines[] = 'Close-Frames: ' . (int)($result['closeFrames'] ?? 0);
+            $lines[] = '';
+            $lines[] = 'Command: authwithtoken/<hash>/<user> + jdev/sps/enablebinstatusupdate';
+            $lines[] = '';
+
+            $previewLines = [];
+            foreach (array_slice($frames, 0, 12) as $i => $frame) {
+                $stage = (string)($frame['stage'] ?? '?');
+                $opcode = (int)($frame['opcode'] ?? -1);
+                $length = (int)($frame['length'] ?? 0);
+                $preview = (string)($frame['preview'] ?? '');
+                $binaryInfo = is_array($frame['binaryInfo'] ?? null) ? $frame['binaryInfo'] : [];
+                $extra = '';
+                if (!empty($binaryInfo['hasHeader'])) {
+                    $extra = ' | binaryHeader type=' . (string)($binaryInfo['type'] ?? '?') . ' size=' . (string)($binaryInfo['size'] ?? '?') . ' body=' . (string)($binaryInfo['bodyLength'] ?? '?');
+                }
+                $previewLines[] = sprintf('#%d [%s] opcode=%d length=%d%s %s', $i + 1, $stage, $opcode, $length, $extra, $preview);
+            }
+
+            $summary = implode("\n", $lines) . implode("\n\n", $previewLines);
+            $this->SetValue('LastLiveProbeSummary', substr($summary, 0, 4000));
+            $this->SetValue('LastWebSocketPayload', substr(implode("\n\n", $previewLines), 0, 4000));
+
+            return $summary;
+        } catch (Throwable $e) {
+            $this->SetValue('LiveEngineStatus', 'LiveEngine Probe Fehler: ' . $e->getMessage());
+            return "Fehler bei LiveEngine Probe:\n" . $e->getMessage();
         }
     }
 

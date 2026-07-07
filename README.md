@@ -1,19 +1,20 @@
 # SymconLoxone
 
-Sprint 8: Token Authentication foundation.
+Sprint 9: WebSocket LiveEngine Probe.
 
-## New
+## Neu
 
-- LoxoneAuth helper class
-- getkey2 parsing
-- password hash creation using SHA1/SHA256 from Miniserver response
-- HMAC login hash creation
-- legacy token diagnostic request
-- WebSocket auth command diagnostic
+- LiveEngine Probe starten
+- authentifiziert per WebSocket Token
+- sendet `jdev/sps/enablebinstatusupdate`
+- liest Text- und Binary-Frames für ein kurzes Diagnosefenster
+- zeigt Frame-Zahlen, Opcode, Länge und binäre Header-Informationen
 
-## Test order
+## Testreihenfolge
 
-1. Token Auth testen
-2. WebSocket Token Auth testen
+1. State-Index erstellen
+2. Token Auth testen
+3. WebSocket Token Auth testen
+4. LiveEngine Probe starten
 
-If the legacy token endpoint is rejected by the Miniserver, the next sprint will add encrypted JWT command support.
+Dieser Sprint ist noch ein begrenzter Diagnose-Listener. Der nächste Schritt ist die dauerhafte, nicht-blockierende Verarbeitung und Zuordnung der Binärwerte auf Symcon-Variablen.

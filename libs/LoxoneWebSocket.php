@@ -73,6 +73,136 @@ class SymconLoxoneWebSocket
         ];
     }
 
+
+
+    /**
+     * Authenticates the WebSocket session, enables binary status updates and reads
+     * incoming frames for a short diagnostic window. This is intentionally a bounded
+     * probe. A later sprint will move the loop into a non-blocking/background-safe
+     * transport for productive use inside IP-Symcon.
+     */
+    public function authenticatedLiveProbe(string $authCommand, int $readSeconds = 8): array
+    {
+        $socket = $this->openSocket(max(5, $readSeconds));
+        $handshake = $this->performHandshake($socket, max(5, $readSeconds));
+        if ((int)($handshake['statusCode'] ?? 0) !== 101) {
+            fclose($socket);
+            throw new RuntimeException('WebSocket Handshake fehlgeschlagen: ' . (string)($handshake['statusLine'] ?? ''));
+        }
+
+        $frames = [];
+
+        // 1) Authenticate with an existing token hash.
+        $this->writeFrame($socket, $authCommand);
+        for ($i = 0; $i < 5; $i++) {
+            $frame = $this->readFrame($socket, 2);
+            if ($frame === null) {
+                break;
+            }
+            $frame['stage'] = 'auth';
+            $frame['binaryInfo'] = $this->decodeBinaryInfo((string)$frame['payload']);
+            $frames[] = $frame;
+
+            if ((int)$frame['opcode'] === 8) {
+                fclose($socket);
+                return $this->summarizeProbe($handshake, $frames, 'closed during auth');
+            }
+
+            if ((int)$frame['opcode'] === 1 && str_contains((string)$frame['payload'], 'validUntil')) {
+                break;
+            }
+        }
+
+        // 2) Ask the Miniserver to stream binary status updates.
+        $enableCommand = 'jdev/sps/enablebinstatusupdate';
+        $this->writeFrame($socket, $enableCommand);
+
+        $start = time();
+        while ((time() - $start) < $readSeconds) {
+            $frame = $this->readFrame($socket, 1);
+            if ($frame === null) {
+                continue;
+            }
+            $frame['stage'] = 'live';
+            $frame['binaryInfo'] = $this->decodeBinaryInfo((string)$frame['payload']);
+            $frames[] = $frame;
+
+            if ((int)$frame['opcode'] === 8) {
+                break;
+            }
+        }
+
+        fclose($socket);
+        return $this->summarizeProbe($handshake, $frames, 'ok');
+    }
+
+    private function summarizeProbe(array $handshake, array $frames, string $status): array
+    {
+        $text = 0;
+        $binary = 0;
+        $close = 0;
+        $other = 0;
+        $live = 0;
+        $auth = 0;
+
+        foreach ($frames as $frame) {
+            $opcode = (int)($frame['opcode'] ?? -1);
+            if (($frame['stage'] ?? '') === 'live') {
+                $live++;
+            } elseif (($frame['stage'] ?? '') === 'auth') {
+                $auth++;
+            }
+
+            if ($opcode === 1) {
+                $text++;
+            } elseif ($opcode === 2) {
+                $binary++;
+            } elseif ($opcode === 8) {
+                $close++;
+            } else {
+                $other++;
+            }
+        }
+
+        return [
+            'url' => $this->getUrl(),
+            'status' => $status,
+            'handshake' => $handshake,
+            'frameCount' => count($frames),
+            'authFrames' => $auth,
+            'liveFrames' => $live,
+            'textFrames' => $text,
+            'binaryFrames' => $binary,
+            'closeFrames' => $close,
+            'otherFrames' => $other,
+            'frames' => $frames
+        ];
+    }
+
+    private function decodeBinaryInfo(string $payload): array
+    {
+        $len = strlen($payload);
+        if ($len < 8) {
+            return [
+                'hasHeader' => false,
+                'length' => $len
+            ];
+        }
+
+        $header = unpack('Vtype/Vsize', substr($payload, 0, 8));
+        $type = (int)($header['type'] ?? -1);
+        $size = (int)($header['size'] ?? 0);
+
+        return [
+            'hasHeader' => true,
+            'length' => $len,
+            'type' => $type,
+            'size' => $size,
+            'bodyLength' => max(0, $len - 8),
+            'bodyHexPreview' => strtoupper(trim(chunk_split(bin2hex(substr($payload, 8, 64)), 2, ' ')))
+        ];
+    }
+
     private function openSocket(int $timeoutSeconds)
     {
         if ($this->host === '') {
