@@ -26,6 +26,9 @@ class LoxoneGateway extends IPSModule
         $this->RegisterVariableInteger('ImportedControls', 'Importierte Controls', '', 50);
         $this->RegisterVariableInteger('ImportedStates', 'Importierte States', '', 60);
         $this->RegisterVariableInteger('ImportedDevices', 'Erzeugte Geräte-Instanzen', '', 70);
+        $this->RegisterVariableInteger('StateIndexSize', 'State-Index Einträge', '', 80);
+        $this->RegisterVariableString('LiveEngineStatus', 'LiveEngine Status', '', 90);
+        $this->RegisterVariableString('LastLiveUpdate', 'Letztes Live-Update', '', 100);
     }
 
     public function ApplyChanges()
@@ -518,6 +521,160 @@ Fehler:
         }
 
         return $text;
+    }
+
+
+    public function BuildStateIndex()
+    {
+        try {
+            $index = $this->CreateStateIndex();
+            $this->SetBuffer('StateIndexJson', json_encode($index, JSON_UNESCAPED_UNICODE));
+            $this->SetValue('StateIndexSize', count($index));
+            $this->SetValue('LiveEngineStatus', 'State-Index bereit. WebSocket-Transport folgt im nächsten Sprint.');
+
+            return "State-Index erstellt\n" .
+                "Einträge: " . count($index) . "\n\n" .
+                "Dieser Index ist die Grundlage für WebSocket-Livewerte:\n" .
+                "Loxone State UUID → Symcon VariableID";
+        } catch (Throwable $e) {
+            return "Fehler beim Erstellen des State-Index:\n" . $e->getMessage();
+        }
+    }
+
+    public function RefreshIndexedStateValues()
+    {
+        try {
+            $index = $this->GetStateIndex();
+            if (count($index) === 0) {
+                $index = $this->CreateStateIndex();
+                $this->SetBuffer('StateIndexJson', json_encode($index, JSON_UNESCAPED_UNICODE));
+                $this->SetValue('StateIndexSize', count($index));
+            }
+
+            $api = $this->CreateApi();
+            $updated = 0;
+            $errors = [];
+
+            foreach ($index as $stateUuid => $entry) {
+                try {
+                    $rawValue = $api->getIoValue((string)$stateUuid);
+                    $this->ApplyLiveStateValue((string)$stateUuid, $rawValue);
+                    $updated++;
+                } catch (Throwable $e) {
+                    $errors[] = ($entry['controlName'] ?? $stateUuid) . ' / ' . ($entry['stateName'] ?? '') . ': ' . $e->getMessage();
+                }
+            }
+
+            $this->SetValue('LiveEngineStatus', 'Index-Refresh abgeschlossen');
+            $this->SetValue('LastLiveUpdate', date('Y-m-d H:i:s'));
+
+            $text = "Indexed State Refresh abgeschlossen\n" .
+                "Index-Einträge: " . count($index) . "\n" .
+                "Aktualisiert: " . $updated;
+
+            if (count($errors) > 0) {
+                $text .= "\n\nFehler: " . count($errors) . "\n" . implode("\n", array_slice($errors, 0, 10));
+            }
+
+            return $text;
+        } catch (Throwable $e) {
+            return "Fehler beim Indexed Refresh:\n" . $e->getMessage();
+        }
+    }
+
+    public function ApplyLiveStateValue(string $stateUuid, $rawValue): bool
+    {
+        $index = $this->GetStateIndex();
+        if (!isset($index[$stateUuid])) {
+            return false;
+        }
+
+        $entry = $index[$stateUuid];
+        $variableId = (int)($entry['variableId'] ?? 0);
+        if ($variableId <= 0 || !IPS_VariableExists($variableId)) {
+            return false;
+        }
+
+        $this->SetTypedVariableValue($variableId, $rawValue);
+        $this->SetValue('LastLiveUpdate', date('Y-m-d H:i:s') . ' ' . (string)($entry['controlName'] ?? '') . ' / ' . (string)($entry['stateName'] ?? ''));
+        return true;
+    }
+
+    private function GetStateIndex(): array
+    {
+        $json = $this->GetBuffer('StateIndexJson');
+        $data = json_decode($json, true);
+        return is_array($data) ? $data : [];
+    }
+
+    private function CreateStateIndex(): array
+    {
+        $deviceModuleGuid = '{7A18B2F4-2FA0-4D78-9E19-6D445A182C10}';
+        $instanceIds = IPS_GetInstanceListByModuleID($deviceModuleGuid);
+        $index = [];
+
+        foreach ($instanceIds as $instanceId) {
+            $gatewayId = (int)IPS_GetProperty($instanceId, 'GatewayID');
+            if ($gatewayId !== $this->InstanceID) {
+                continue;
+            }
+
+            $states = json_decode((string)IPS_GetProperty($instanceId, 'StatesJson'), true);
+            if (!is_array($states)) {
+                continue;
+            }
+
+            foreach ($states as $stateName => $stateUuid) {
+                $ident = 'State_' . $this->IdentFromString((string)$stateName);
+                $variableId = @IPS_GetObjectIDByIdent($ident, $instanceId);
+                if ($variableId === false) {
+                    continue;
+                }
+
+                $index[(string)$stateUuid] = [
+                    'instanceId' => $instanceId,
+                    'variableId' => $variableId,
+                    'stateName' => (string)$stateName,
+                    'stateUuid' => (string)$stateUuid,
+                    'controlName' => (string)IPS_GetProperty($instanceId, 'ControlName'),
+                    'controlType' => (string)IPS_GetProperty($instanceId, 'ControlType')
+                ];
+            }
+        }
+
+        ksort($index);
+        return $index;
+    }
+
+    private function SetTypedVariableValue(int $variableId, $rawValue): void
+    {
+        $variable = IPS_GetVariable($variableId);
+        $type = (int)$variable['VariableType'];
+
+        switch ($type) {
+            case 0:
+                if (is_bool($rawValue)) {
+                    SetValueBoolean($variableId, $rawValue);
+                } elseif (is_numeric($rawValue)) {
+                    SetValueBoolean($variableId, ((float)$rawValue) != 0.0);
+                } else {
+                    SetValueBoolean($variableId, in_array(strtolower((string)$rawValue), ['1', 'true', 'on', 'ein', 'yes'], true));
+                }
+                break;
+            case 1:
+                SetValueInteger($variableId, (int)$rawValue);
+                break;
+            case 2:
+                SetValueFloat($variableId, (float)$rawValue);
+                break;
+            default:
+                if (is_array($rawValue) || is_object($rawValue)) {
+                    SetValueString($variableId, json_encode($rawValue, JSON_UNESCAPED_UNICODE));
+                } else {
+                    SetValueString($variableId, (string)$rawValue);
+                }
+                break;
+        }
     }
 
     private function CreateApi(): SymconLoxoneAPI

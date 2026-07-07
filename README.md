@@ -1,25 +1,13 @@
 # SymconLoxone
 
-A modern Loxone integration for IP-Symcon.
+Sprint 7: LiveEngine foundation.
 
-## Status
+## Neu in Sprint 7
 
-Version 0.6: first state refresh implementation.
+- State-Index: Loxone State UUID → Symcon VariableID
+- Gateway-Variablen für LiveEngine-Status
+- Button **State-Index erstellen**
+- Button **LiveEngine Test: Indexed Refresh**
+- zentrale Methode `ApplyLiveStateValue($stateUuid, $rawValue)` als Grundlage für WebSocket-Ereignisse
 
-## Features so far
-
-- Native IP-Symcon module structure
-- Loxone Gateway instance
-- Loxone Device instances
-- Basic connection test against `/jdev/cfg/version`
-- Basic LoxAPP3 analysis against `/data/LoxAPP3.json`
-- Import rooms, categories and controls
-- Create one device instance per Loxone control
-- Register state variables per control
-- Refresh state values via Loxone IO webservice
-- Optional polling interval on gateway
-
-## Next
-
-- Replace polling with persistent WebSocket live updates
-- Add control actions for Switch, Pushbutton, gates, alarm, shading and lights
+Hinweis: Der echte WebSocket-Transport wird im nächsten Schritt auf diese State-Index-Schicht gesetzt. Sprint 7 validiert zuerst die zentrale Zuordnung und Aktualisierung aller State-Variablen.

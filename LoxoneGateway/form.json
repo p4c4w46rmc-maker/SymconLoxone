@@ -62,8 +62,18 @@
       "onClick": "echo LOX_RefreshAllDeviceStates($id);"
     },
     {
+      "type": "Button",
+      "caption": "State-Index erstellen",
+      "onClick": "echo LOX_BuildStateIndex($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "LiveEngine Test: Indexed Refresh",
+      "onClick": "echo LOX_RefreshIndexedStateValues($id);"
+    },
+    {
       "type": "Label",
-      "caption": "Sprint 6: Aktualisiert State-Variablen über Loxone IO-Abfragen. WebSocket folgt nach Validierung der State-Zuordnung."
+      "caption": "Sprint 7: LiveEngine-Grundlage. StateUUID→VariableID Index ist aktiv; WebSocket-Transport wird darauf aufgesetzt."
     }
   ]
 }
