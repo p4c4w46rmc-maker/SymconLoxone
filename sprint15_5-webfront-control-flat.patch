@@ -1,0 +1,84 @@
+diff --git a/LoxoneDevice/module.php b/LoxoneDevice/module.php
+--- a/LoxoneDevice/module.php
++++ b/LoxoneDevice/module.php
+@@
+-    private function CreateBaseCategories(): void
+-    {
+-        $this->EnsureCategory('Cat_Control', 'Bedienung', 10, 'Execute');
+-        $this->EnsureCategory('Cat_Status', 'Status', 20, 'Information');
+-        $this->EnsureCategory('Cat_Info', 'Informationen', 30, 'Information');
+-        $this->EnsureCategory('Cat_Technical', 'Technik', 900, 'Database');
+-    }
++    private function CreateBaseCategories(): void
++    {
++        // Sprint 15.5:
++        // Bedienvariablen dürfen nicht mehr in einer Unterkategorie "Bedienung" liegen,
++        // da sie im WebFront sonst je nach Darstellung nicht sichtbar sind.
++        // Die Bedienvariablen werden direkt unter der Geräteinstanz erzeugt.
++        // Eine eventuell alte Kategorie "Bedienung" wird beim nächsten ApplyChanges geleert/ausgeblendet.
++        $this->MigrateControlVariablesToDeviceRoot();
++
++        $this->EnsureCategory('Cat_Status', 'Status', 20, 'Information');
++        $this->EnsureCategory('Cat_Info', 'Informationen', 30, 'Information');
++        $this->EnsureCategory('Cat_Technical', 'Technik', 900, 'Database');
++    }
+@@
+-        $controlParent = $this->EnsureCategory('Cat_Control', 'Bedienung', 10, 'Execute');
++        // Sprint 15.5:
++        // Bedienvariablen direkt unter der Instanz anlegen, damit sie im WebFront sichtbar/klickbar sind.
++        $controlParent = $this->InstanceID;
+         $statusParent = $this->EnsureCategory('Cat_Status', 'Status', 20, 'Information');
+         $infoParent = $this->EnsureCategory('Cat_Info', 'Informationen', 30, 'Information');
+@@
+     private function ApplyVisibilityPolicy(): void
+     {
+@@
+         $technicalId = $this->FindObjectIDByIdent('Cat_Technical');
+         if ($technicalId !== false) {
+             @IPS_SetHidden((int)$technicalId, true);
+         }
++
++        // Alte Bedienung-Kategorie aus Sprint 15 ausblenden, wenn sie noch existiert.
++        $controlCategoryId = $this->FindObjectIDByIdent('Cat_Control');
++        if ($controlCategoryId !== false) {
++            @IPS_SetHidden((int)$controlCategoryId, true);
++        }
++
+         $hiddenDisplayIdents = $this->HiddenDisplayIdentsForDeviceClass();
+         foreach ($hiddenDisplayIdents as $ident) {
+             $id = $this->FindObjectIDByIdent($ident);
+@@
+     private function EnsureVariable(string $ident, string $name, int $type, string $profile, int $position, int $parentId, bool $enableAction): int
+     {
+@@
+         return (int)$id;
+     }
++
++    private function MigrateControlVariablesToDeviceRoot(): void
++    {
++        $controlCategoryId = $this->FindDirectObjectIDByIdent('Cat_Control');
++        if ($controlCategoryId === false) {
++            return;
++        }
++
++        $controlIdents = [
++            'Display_Switch',
++            'Display_Press',
++            'Display_GatePulse',
++            'Display_AlarmAction',
++            'Display_AccessOpen',
++            'Display_DaytimerOverride'
++        ];
++
++        foreach ($controlIdents as $ident) {
++            $id = $this->FindObjectIDByIdentRecursive((int)$controlCategoryId, $ident);
++            if ($id !== false) {
++                @IPS_SetParent((int)$id, $this->InstanceID);
++                @IPS_SetHidden((int)$id, false);
++            }
++        }
++
++        // Kategorie nicht löschen, damit keine Objekt-IDs unkontrolliert verschwinden.
++        // Sie wird nur versteckt und kann später in einem Cleanup-Sprint entfernt werden.
++        @IPS_SetHidden((int)$controlCategoryId, true);
++    }
