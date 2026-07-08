@@ -1,0 +1,70 @@
+*** Begin Patch
+*** Update File: LoxoneGateway/module.php
+@@
+-        $rootId = $this->GetOrCreateCategory($this->InstanceID, 'Loxone', 'loxone_root', 100);
++        $rootId = $this->GetVisualizationRootCategoryId();
+@@
+-        $rootId = $this->GetOrCreateCategory($this->InstanceID, 'Loxone', 'loxone_root', 100);
++        $rootId = $this->GetVisualizationRootCategoryId();
+@@
+-            $instanceId = @IPS_GetObjectIDByIdent($ident, $catId);
+-            if ($instanceId === false) {
+-                $instanceId = IPS_CreateInstance($deviceModuleGuid);
+-                IPS_SetParent($instanceId, $catId);
+-                IPS_SetIdent($instanceId, $ident);
+-            }
++            $instanceId = @IPS_GetObjectIDByIdent($ident, $catId);
++            if ($instanceId === false) {
++                $instanceId = $this->FindDeviceInstanceByControlUuid((string)$uuid);
++                if ($instanceId !== false) {
++                    IPS_SetParent($instanceId, $catId);
++                    IPS_SetIdent($instanceId, $ident);
++                }
++            }
++            if ($instanceId === false) {
++                $instanceId = IPS_CreateInstance($deviceModuleGuid);
++                IPS_SetParent($instanceId, $catId);
++                IPS_SetIdent($instanceId, $ident);
++            }
+@@
+     private function GetOrCreateCategory(int $parentId, string $name, string $ident, int $position = 0): int
+     {
+@@
+         return $id;
+     }
++
++    private function GetVisualizationRootCategoryId(): int
++    {
++        $id = @IPS_GetObjectIDByIdent('symconloxone_root', 0);
++        if ($id === false) {
++            $id = IPS_CreateCategory();
++            IPS_SetParent($id, 0);
++            IPS_SetIdent($id, 'symconloxone_root');
++        }
++
++        IPS_SetName($id, 'Loxone');
++        IPS_SetPosition($id, 100);
++        @IPS_SetIcon($id, 'Network');
++
++        return $id;
++    }
++
++    private function FindDeviceInstanceByControlUuid(string $controlUuid)
++    {
++        $deviceModuleGuid = '{7A18B2F4-2FA0-4D78-9E19-6D445A182C10}';
++        foreach (IPS_GetInstanceListByModuleID($deviceModuleGuid) as $instanceId) {
++            try {
++                if ((int)IPS_GetProperty($instanceId, 'GatewayID') !== $this->InstanceID) {
++                    continue;
++                }
++                if ((string)IPS_GetProperty($instanceId, 'ControlUUID') === $controlUuid) {
++                    return $instanceId;
++                }
++            } catch (Throwable $e) {
++                continue;
++            }
++        }
++
++        return false;
++    }
+*** End Patch
