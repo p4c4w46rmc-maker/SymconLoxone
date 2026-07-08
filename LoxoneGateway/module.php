@@ -128,7 +128,7 @@ class LoxoneGateway extends IPSModule
             $roomNames = $this->BuildNameMap($rooms);
             $catNames = $this->BuildNameMap($cats);
 
-            $rootId = $this->GetOrCreateCategory($this->InstanceID, 'Loxone', 'loxone_root', 100);
+            $rootId = $this->GetOrCreateGlobalLoxoneRoot();
             $roomsRootId = $this->GetOrCreateCategory($rootId, 'Räume', 'rooms', 10);
             $catsRootId = $this->GetOrCreateCategory($rootId, 'Kategorien', 'categories', 20);
             $controlsRootId = $this->GetOrCreateCategory($rootId, 'Controls', 'controls', 30);
@@ -223,7 +223,7 @@ class LoxoneGateway extends IPSModule
             $roomNames = $this->BuildNameMap($rooms);
             $catNames = $this->BuildNameMap($cats);
 
-            $rootId = $this->GetOrCreateCategory($this->InstanceID, 'Loxone', 'loxone_root', 100);
+            $rootId = $this->GetOrCreateGlobalLoxoneRoot();
             $devicesRootId = $this->GetOrCreateCategory($rootId, 'Geräte', 'devices', 40);
 
             $createdOrUpdated = 0;
@@ -389,6 +389,30 @@ class LoxoneGateway extends IPSModule
 
         IPS_SetName($id, $name);
         IPS_SetPosition($id, $position);
+        return $id;
+    }
+
+    private function GetOrCreateGlobalLoxoneRoot(): int
+    {
+        $ident = 'symconloxone_root';
+
+        foreach (IPS_GetChildrenIDs(0) as $id) {
+            $object = IPS_GetObject($id);
+            if (($object['ObjectIdent'] ?? '') === $ident) {
+                IPS_SetName($id, 'Loxone');
+                IPS_SetPosition($id, 1000);
+                @IPS_SetIcon($id, 'Network');
+                return $id;
+            }
+        }
+
+        $id = IPS_CreateCategory();
+        IPS_SetParent($id, 0);
+        IPS_SetIdent($id, $ident);
+        IPS_SetName($id, 'Loxone');
+        IPS_SetPosition($id, 1000);
+        @IPS_SetIcon($id, 'Network');
+
         return $id;
     }
 
