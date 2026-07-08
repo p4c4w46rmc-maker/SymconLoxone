@@ -224,64 +224,97 @@ Fehler: " . count($errors) . "
     private function RegisterPresentationVariables(): void
     {
         $type = strtolower($this->ReadPropertyString('ControlType'));
+        $name = $this->ReadPropertyString('ControlName');
+        $category = $this->ReadPropertyString('CategoryName');
         $states = $this->DecodeJsonObject($this->ReadPropertyString('StatesJson'));
+        $class = $this->DetectDeviceClass();
 
         if ($type === 'switch' && isset($states['active'])) {
-            $this->RegisterVariableBoolean('Display_Switch', 'Schalter', '~Switch', 1);
+            $caption = $class === 'gate' ? 'Tor schalten' : 'Schalter';
+            $this->RegisterVariableBoolean('Display_Switch', $caption, '~Switch', 1);
+            $this->SetVariableCaption('Display_Switch', $caption);
             $this->EnableAction('Display_Switch');
             $this->SetDefaultValueIfEmpty('Display_Switch', false);
         }
 
         if ($type === 'pushbutton') {
-            $this->RegisterVariableBoolean('Display_Press', 'Auslösen', '~Switch', 1);
+            $caption = $this->ActionCaptionForDeviceClass($class, $name);
+            $this->RegisterVariableBoolean('Display_Press', $caption, '~Switch', 1);
+            $this->SetVariableCaption('Display_Press', $caption);
             $this->EnableAction('Display_Press');
             $this->SetValueIfExists('Display_Press', false);
         }
 
         if ($type === 'infoonlydigital' && isset($states['active'])) {
-            $this->RegisterVariableBoolean('Display_Status', 'Status', '~Switch', 1);
+            $caption = $this->StatusCaptionForDeviceClass($class, $name);
+            $this->RegisterVariableBoolean('Display_Status', $caption, '~Switch', 1);
+            $this->SetVariableCaption('Display_Status', $caption);
             $this->SetDefaultValueIfEmpty('Display_Status', false);
         }
 
+        if ($type === 'daytimer') {
+            if (isset($states['value'])) {
+                $this->RegisterVariableBoolean('Display_DaytimerActive', 'Aktiv', '~Switch', 20);
+                $this->SetVariableCaption('Display_DaytimerActive', 'Aktiv');
+                $this->SetDefaultValueIfEmpty('Display_DaytimerActive', false);
+            }
+            if (isset($states['override'])) {
+                $this->RegisterVariableBoolean('Display_DaytimerOverride', 'Override', '~Switch', 21);
+                $this->SetVariableCaption('Display_DaytimerOverride', 'Override');
+                $this->SetDefaultValueIfEmpty('Display_DaytimerOverride', false);
+            }
+        }
+
         if (isset($states['jLocked'])) {
-            $this->RegisterVariableBoolean('Display_Locked', 'Gesperrt', '~Switch', 10);
+            $caption = $class === 'nfc' ? 'Bedienung gesperrt' : 'Gesperrt';
+            $this->RegisterVariableBoolean('Display_Locked', $caption, '~Switch', 10);
+            $this->SetVariableCaption('Display_Locked', $caption);
             $this->SetDefaultValueIfEmpty('Display_Locked', false);
         }
 
         if (isset($states['lockedOn'])) {
             $this->RegisterVariableBoolean('Display_LockedOn', 'Gesperrt ein', '~Switch', 11);
+            $this->SetVariableCaption('Display_LockedOn', 'Gesperrt ein');
             $this->SetDefaultValueIfEmpty('Display_LockedOn', false);
         }
 
-        if (isset($states['deviceState'])) {
+        if (isset($states['deviceState']) && in_array($class, ['nfc', 'access'], true)) {
             $this->RegisterVariableInteger('Display_DeviceState', 'Gerätestatus', '', 20);
+            $this->SetVariableCaption('Display_DeviceState', 'Gerätestatus');
             $this->SetDefaultValueIfEmpty('Display_DeviceState', 0);
         }
 
-        if (isset($states['mode'])) {
+        // Generic mode/value are useful for unknown controls, but too noisy for Daytimer/NFC/Gate views.
+        if (isset($states['mode']) && !in_array($class, ['daytimer', 'nfc', 'gate', 'access'], true)) {
             $this->RegisterVariableInteger('Display_Mode', 'Modus', '', 21);
+            $this->SetVariableCaption('Display_Mode', 'Modus');
             $this->SetDefaultValueIfEmpty('Display_Mode', 0);
         }
 
-        if (isset($states['value'])) {
+        if (isset($states['value']) && !in_array($class, ['daytimer'], true)) {
             $this->RegisterVariableFloat('Display_Value', 'Wert', '', 22);
+            $this->SetVariableCaption('Display_Value', 'Wert');
             $this->SetDefaultValueIfEmpty('Display_Value', 0.0);
         }
 
         if (isset($states['lastuser'])) {
             $this->RegisterVariableString('Display_LastUser', 'Letzter Benutzer', '', 30);
+            $this->SetVariableCaption('Display_LastUser', 'Letzter Benutzer');
         }
 
         if (isset($states['lasttag'])) {
             $this->RegisterVariableString('Display_LastTag', 'Letzter Tag', '', 31);
+            $this->SetVariableCaption('Display_LastTag', 'Letzter Tag');
         }
 
         if (isset($states['lastcode'])) {
             $this->RegisterVariableString('Display_LastCode', 'Letzter Code', '', 32);
+            $this->SetVariableCaption('Display_LastCode', 'Letzter Code');
         }
 
-        if (isset($states['events'])) {
+        if (isset($states['events']) && in_array($class, ['nfc', 'access'], true)) {
             $this->RegisterVariableString('Display_Events', 'Ereignisse', '', 40);
+            $this->SetVariableCaption('Display_Events', 'Ereignisse');
         }
     }
 
@@ -307,11 +340,12 @@ Fehler: " . count($errors) . "
             }
         }
 
+        $hiddenDisplayIdents = $this->HiddenDisplayIdentsForDeviceClass();
         foreach (IPS_GetChildrenIDs($this->InstanceID) as $childId) {
             $object = IPS_GetObject($childId);
             $ident = (string)($object['ObjectIdent'] ?? '');
             if (str_starts_with($ident, 'Display_')) {
-                @IPS_SetHidden($childId, false);
+                @IPS_SetHidden($childId, in_array($ident, $hiddenDisplayIdents, true));
             }
         }
     }
@@ -351,7 +385,16 @@ Fehler: " . count($errors) . "
         }
 
         if ($stateNameLower === 'value') {
-            $this->SetValueIfExists('Display_Value', (float)$rawValue);
+            if ($type === 'daytimer') {
+                $this->SetValueIfExists('Display_DaytimerActive', $this->ToBool($rawValue));
+            } else {
+                $this->SetValueIfExists('Display_Value', (float)$rawValue);
+            }
+            return;
+        }
+
+        if ($stateNameLower === 'override') {
+            $this->SetValueIfExists('Display_DaytimerOverride', $this->ToBool($rawValue));
             return;
         }
 
@@ -376,6 +419,105 @@ Fehler: " . count($errors) . "
             } else {
                 $this->SetValueIfExists('Display_Events', (string)$rawValue);
             }
+        }
+    }
+
+    private function DetectDeviceClass(): string
+    {
+        $type = strtolower($this->ReadPropertyString('ControlType'));
+        $name = strtolower($this->ReadPropertyString('ControlName'));
+        $category = strtolower($this->ReadPropertyString('CategoryName'));
+        $states = $this->DecodeJsonObject($this->ReadPropertyString('StatesJson'));
+
+        if ($type === 'daytimer') {
+            return 'daytimer';
+        }
+        if ($type === 'nfccodetouch') {
+            return 'nfc';
+        }
+        if (str_contains($name, 'garage') || str_contains($name, 'tor') || str_contains($name, 'gartentor')) {
+            return 'gate';
+        }
+        if (str_contains($name, 'tür') || str_contains($name, 'tuere') || str_contains($name, 'ture') || str_contains($category, 'zutritt')) {
+            return 'access';
+        }
+        if (str_contains($name, 'alarm') || str_contains($category, 'alarm')) {
+            return 'alarm';
+        }
+        if ($type === 'switch') {
+            return 'switch';
+        }
+        if ($type === 'pushbutton') {
+            return 'pushbutton';
+        }
+        if ($type === 'infoonlydigital') {
+            return 'status';
+        }
+        if (isset($states['temperature']) || str_contains($category, 'temperatur')) {
+            return 'temperature';
+        }
+        return 'generic';
+    }
+
+    private function ActionCaptionForDeviceClass(string $class, string $name): string
+    {
+        $nameLower = strtolower($name);
+        if ($class === 'gate') {
+            return 'Tor auslösen';
+        }
+        if ($class === 'alarm') {
+            if (str_contains($nameLower, 'unscharf')) {
+                return 'Unscharf schalten';
+            }
+            if (str_contains($nameLower, 'scharf')) {
+                return 'Scharf schalten';
+            }
+            return 'Alarmaktion auslösen';
+        }
+        if ($class === 'access' || $class === 'nfc') {
+            return 'Öffnen / Auslösen';
+        }
+        return 'Auslösen';
+    }
+
+    private function StatusCaptionForDeviceClass(string $class, string $name): string
+    {
+        $nameLower = strtolower($name);
+        if ($class === 'gate') {
+            return 'Torstatus';
+        }
+        if ($class === 'access' || str_contains($nameLower, 'tür') || str_contains($nameLower, 'tuere')) {
+            return 'Türstatus';
+        }
+        if ($class === 'alarm') {
+            return 'Alarmstatus';
+        }
+        if (str_contains($nameLower, 'strom')) {
+            return 'Stromversorgung';
+        }
+        return 'Status';
+    }
+
+    private function HiddenDisplayIdentsForDeviceClass(): array
+    {
+        $class = $this->DetectDeviceClass();
+        if ($class === 'daytimer') {
+            return ['Display_Mode', 'Display_Value', 'Display_Events', 'Display_DeviceState'];
+        }
+        if (in_array($class, ['nfc', 'access'], true)) {
+            return ['Display_Mode', 'Display_Value'];
+        }
+        if ($class === 'gate') {
+            return ['Display_Mode', 'Display_Value', 'Display_DeviceState', 'Display_Events'];
+        }
+        return [];
+    }
+
+    private function SetVariableCaption(string $ident, string $caption): void
+    {
+        $id = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+        if ($id !== false) {
+            @IPS_SetName($id, $caption);
         }
     }
 
@@ -580,7 +722,8 @@ Fehler: " . count($errors) . "
             'lasttag' => 'Letzter Tag',
             'lastcode' => 'Letzter Code',
             'deviceState' => 'Gerätestatus',
-            'events' => 'Ereignisse'
+            'events' => 'Ereignisse',
+            'override' => 'Override'
         ];
 
         return $labels[$stateName] ?? ucfirst($stateName);

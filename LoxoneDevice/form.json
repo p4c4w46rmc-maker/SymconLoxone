@@ -23,7 +23,7 @@
     },
     {
       "type": "Label",
-      "caption": "Sprint 12: WebFront-Variablen für Schalter, Pushbutton und Status. Technische UUID/State-Variablen werden in der Visualisierung versteckt."
+      "caption": "Sprint 13: Geräte-Engine mit smarter Darstellung für Tor/Zutritt/Alarm/NFC/Schaltuhr. Technische Variablen bleiben versteckt."
     }
   ]
 }

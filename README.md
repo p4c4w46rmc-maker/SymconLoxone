@@ -1,22 +1,43 @@
 # SymconLoxone
 
-Sprint 12: WebFront- und Visualisierungsintegration.
+Loxone integration for IP-Symcon.
 
-## Neu
+## Sprint 13 – Geräte-Engine / Smart WebFront
 
-- Technische Metadaten und rohe State-Variablen werden versteckt.
-- Loxone Device erzeugt sichtbare Bedien-/Statusvariablen:
-  - Switch: `Schalter`
-  - Pushbutton: `Auslösen`
-  - InfoOnlyDigital: `Status`
-  - NFC/Access: `Gesperrt`, `Gerätestatus`, `Letzter Benutzer`, `Letzter Tag`, `Letzter Code`
-- LiveEngine aktualisiert zusätzlich zu den Roh-States auch die WebFront-Variablen.
-- Schalter und Pushbuttons sind direkt in Symcon bedienbar.
+Neu in Sprint 13:
 
-## Test
+- Geräteklassifizierung direkt in `LoxoneDevice`
+- bessere WebFront-Beschriftungen für Tor, Zutritt, Alarm, NFC und Schaltuhr
+- Schaltuhren werden weniger technisch dargestellt
+  - `Aktiv` statt generischem `Wert`
+  - `Modus`/interne Werte werden aus der Visualisierung ausgeblendet
+- Garagentore/Tore bekommen passendere Bedien- und Statusnamen
+  - `Tor auslösen`
+  - `Torstatus`
+- Zutritt/Türen bekommen passendere Statusnamen
+  - `Türstatus`
+  - `Öffnen / Auslösen`
+- Alarm-Pushbuttons bekommen sprechende Aktionen
+  - `Scharf schalten`
+  - `Unscharf schalten`
+- NFC/Access zeigt nur die relevanten Bedien- und Statuswerte
+- bestehende `Display_*`-Variablen werden beim Übernehmen automatisch umbenannt/versteckt
 
-1. Module aktualisieren.
-2. Gateway öffnen und `Geräte-Instanzen erzeugen / aktualisieren` ausführen.
-3. Eine Device-Instanz öffnen und `Übernehmen` klicken, falls sie bereits existierte.
-4. `LiveEngine Decoder Probe` ausführen.
-5. Im WebFront sollten die neuen Bedienvariablen sichtbar sein.
+## Nach dem Einspielen
+
+1. Modul aktualisieren
+2. Loxone Gateway öffnen
+3. Geräte-Instanzen erzeugen / aktualisieren
+4. Bei bestehenden Loxone-Device-Instanzen einmal **Übernehmen** klicken, falls alte Anzeigen wie `Modus`/`Wert` noch sichtbar sind
+5. WebFront neu laden
+
+## Stand
+
+- HTTP API: funktioniert
+- LoxAPP3 Import: funktioniert
+- Geräte-Import: funktioniert
+- Token Auth: funktioniert
+- WebSocket Auth: funktioniert
+- LiveEngine Decoder: funktioniert
+- Erste Steuerbefehle: funktioniert
+- Sprint 13: Smart WebFront / Geräteklassifizierung
