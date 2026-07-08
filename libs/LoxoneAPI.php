@@ -10,6 +10,10 @@ class SymconLoxoneAPI
     private string $username;
     private string $password;
 
+    private string $lastUrl = '';
+    private string $lastHttpStatus = '';
+    private string $lastBodyPreview = '';
+
     public function __construct(string $host, int $port, bool $https, string $username, string $password)
     {
         $this->host = $host;
@@ -52,12 +56,20 @@ class SymconLoxoneAPI
     {
         $response = $this->sendIoCommand($uuidOrName, $command);
         if (!isset($response['LL'])) {
-            throw new RuntimeException('Loxone Antwort enthält keinen LL-Block.');
+            throw new RuntimeException(
+                'Loxone Antwort enthält keinen LL-Block. HTTP=' . $this->lastHttpStatus .
+                ' URL=' . $this->lastUrl .
+                ' Body=' . $this->lastBodyPreview
+            );
         }
 
         $code = (string)($response['LL']['Code'] ?? '');
         if ($code !== '200') {
-            throw new RuntimeException('Loxone IO Befehl Antwortcode ist ' . $code . ': ' . json_encode($response, JSON_UNESCAPED_UNICODE));
+            throw new RuntimeException(
+                'Loxone IO Befehl Antwortcode ist ' . $code .
+                ' | URL=' . $this->lastUrl .
+                ' | Antwort=' . json_encode($response, JSON_UNESCAPED_UNICODE)
+            );
         }
 
         return $response['LL']['value'] ?? null;
@@ -67,15 +79,32 @@ class SymconLoxoneAPI
     {
         $response = $this->getIo($uuidOrName);
         if (!isset($response['LL'])) {
-            throw new RuntimeException('Loxone Antwort enthält keinen LL-Block.');
+            throw new RuntimeException(
+                'Loxone Antwort enthält keinen LL-Block. HTTP=' . $this->lastHttpStatus .
+                ' URL=' . $this->lastUrl .
+                ' Body=' . $this->lastBodyPreview
+            );
         }
 
         $code = (string)($response['LL']['Code'] ?? '');
         if ($code !== '200') {
-            throw new RuntimeException('Loxone IO Antwortcode ist ' . $code . ': ' . json_encode($response, JSON_UNESCAPED_UNICODE));
+            throw new RuntimeException(
+                'Loxone IO Antwortcode ist ' . $code .
+                ' | URL=' . $this->lastUrl .
+                ' | Antwort=' . json_encode($response, JSON_UNESCAPED_UNICODE)
+            );
         }
 
         return $response['LL']['value'] ?? null;
+    }
+
+    public function getLastDiagnostics(): array
+    {
+        return [
+            'url' => $this->lastUrl,
+            'httpStatus' => $this->lastHttpStatus,
+            'bodyPreview' => $this->lastBodyPreview
+        ];
     }
 
     private function getJson(string $path): array
@@ -84,7 +113,11 @@ class SymconLoxoneAPI
         $data = json_decode($body, true);
 
         if (!is_array($data)) {
-            throw new RuntimeException('Antwort ist kein gültiges JSON: ' . substr($body, 0, 500));
+            throw new RuntimeException(
+                'Antwort ist kein gültiges JSON. HTTP=' . $this->lastHttpStatus .
+                ' URL=' . $this->lastUrl .
+                ' Body=' . substr($body, 0, 500)
+            );
         }
 
         return $data;
@@ -98,8 +131,15 @@ class SymconLoxoneAPI
 
         $scheme = $this->https ? 'https' : 'http';
         $url = sprintf('%s://%s:%d%s', $scheme, $this->host, $this->port, $path);
+        $this->lastUrl = $url;
+        $this->lastHttpStatus = '';
+        $this->lastBodyPreview = '';
 
-        $headers = [];
+        $headers = [
+            'Connection: close',
+            'User-Agent: SymconLoxone/0.16.1',
+            'Accept: application/json, text/plain, */*'
+        ];
         if ($this->username !== '' || $this->password !== '') {
             $headers[] = 'Authorization: Basic ' . base64_encode($this->username . ':' . $this->password);
         }
@@ -107,9 +147,10 @@ class SymconLoxoneAPI
         $context = stream_context_create([
             'http' => [
                 'method' => 'GET',
-                'header' => implode("\r\n", $headers),
-                'timeout' => 10,
-                'ignore_errors' => true
+                'header' => implode("\r\n", $headers) . "\r\n",
+                'timeout' => 3,
+                'ignore_errors' => true,
+                'protocol_version' => 1.0
             ],
             'ssl' => [
                 'verify_peer' => false,
@@ -118,11 +159,22 @@ class SymconLoxoneAPI
         ]);
 
         $body = @file_get_contents($url, false, $context);
+        $statusLine = '';
+        if (isset($http_response_header) && is_array($http_response_header) && count($http_response_header) > 0) {
+            $statusLine = (string)$http_response_header[0];
+        }
+        $this->lastHttpStatus = $statusLine;
+
         if ($body === false) {
             $error = error_get_last();
-            throw new RuntimeException('HTTP-Aufruf fehlgeschlagen: ' . ($error['message'] ?? $url));
+            throw new RuntimeException(
+                'HTTP-Aufruf fehlgeschlagen: ' . ($error['message'] ?? 'unbekannter Fehler') .
+                ' | URL=' . $url .
+                ' | HTTP=' . $statusLine
+            );
         }
 
+        $this->lastBodyPreview = substr($body, 0, 500);
         return $body;
     }
 }
