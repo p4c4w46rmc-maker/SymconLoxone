@@ -162,22 +162,39 @@ class LoxoneDevice extends IPSModule
             throw new RuntimeException('Keine ActionUUID hinterlegt.');
         }
 
-        return LOX_SendControlCommand($gatewayId, $actionUuid, $command);
+        $command = trim($command);
+        if ($command === '') {
+            throw new RuntimeException('Befehl ist leer.');
+        }
+
+        $this->SendDebug('Loxone Command', sprintf(
+            'Control=%s Type=%s Class=%s ActionUUID=%s Command=%s',
+            $this->ReadPropertyString('ControlName'),
+            $this->ReadPropertyString('ControlType'),
+            $this->DetectDeviceClass(),
+            $actionUuid,
+            $command
+        ), 0);
+
+        $result = LOX_SendControlCommand($gatewayId, $actionUuid, $command);
+
+        $this->SendDebug('Loxone Command Result', is_array($result) ? json_encode($result, JSON_UNESCAPED_UNICODE) : (string)$result, 0);
+        return $result;
     }
 
     public function Press()
     {
-        return $this->SendCommand('pulse');
+        return $this->SendCommand($this->PreferredImpulseCommand());
     }
 
     public function SwitchOn()
     {
-        return $this->SendCommand('on');
+        return $this->SendCommand($this->PreferredSwitchOnCommand());
     }
 
     public function SwitchOff()
     {
-        return $this->SendCommand('off');
+        return $this->SendCommand($this->PreferredSwitchOffCommand());
     }
 
     public function Toggle()
@@ -187,7 +204,7 @@ class LoxoneDevice extends IPSModule
             return $this->Press();
         }
 
-        return $this->SendCommand('pulse');
+        return $this->SendCommand($this->PreferredToggleCommand());
     }
 
     public function TestCommand()
@@ -197,15 +214,16 @@ class LoxoneDevice extends IPSModule
 
         try {
             if ($type === 'switch') {
-                $result = $this->Toggle();
-                $command = 'pulse';
+                $command = $this->PreferredToggleCommand();
+                $result = $this->SendCommand($command);
             } elseif ($type === 'pushbutton') {
-                $result = $this->Press();
-                $command = 'pulse';
+                $command = $this->PreferredImpulseCommand();
+                $result = $this->SendCommand($command);
             } else {
                 return "Für diesen Control-Typ ist kein Standardbefehl hinterlegt.\n" .
                     "Typ: " . $this->ReadPropertyString('ControlType') . "\n" .
-                    "Klasse: " . $this->HumanDeviceClassLabel($class);
+                    "Klasse: " . $this->HumanDeviceClassLabel($class) . "\n\n" .
+                    "Nutze zur Analyse LOXD_CommandDiagnostics($diese Instanz$) oder LOXD_TestCommandVariants($diese Instanz$).";
             }
 
             return "Befehl gesendet\n" .
@@ -221,6 +239,100 @@ class LoxoneDevice extends IPSModule
                 "Typ: " . $this->ReadPropertyString('ControlType') . "\n" .
                 "Fehler: " . $e->getMessage();
         }
+    }
+
+    public function CommandDiagnostics()
+    {
+        $details = $this->DecodeJsonObject($this->ReadPropertyString('DetailsJson'));
+        $states = $this->DecodeJsonObject($this->ReadPropertyString('StatesJson'));
+        $type = strtolower($this->ReadPropertyString('ControlType'));
+
+        $lines = [];
+        $lines[] = 'Command-Diagnose';
+        $lines[] = 'Control: ' . $this->ReadPropertyString('ControlName');
+        $lines[] = 'Typ: ' . $this->ReadPropertyString('ControlType');
+        $lines[] = 'Klasse: ' . $this->HumanDeviceClassLabel($this->DetectDeviceClass());
+        $lines[] = 'GatewayID: ' . (string)$this->ReadPropertyInteger('GatewayID');
+        $lines[] = 'ControlUUID: ' . $this->ReadPropertyString('ControlUUID');
+        $lines[] = 'ActionUUID: ' . $this->ReadPropertyString('ActionUUID');
+        $lines[] = 'Standardbefehl: ' . ($type === 'switch' ? $this->PreferredToggleCommand() : $this->PreferredImpulseCommand());
+        $lines[] = '';
+        $lines[] = 'States:';
+        foreach ($states as $name => $uuid) {
+            $lines[] = '- ' . (string)$name . ': ' . (string)$uuid;
+        }
+        $lines[] = '';
+        $lines[] = 'Details:';
+        $lines[] = json_encode($details, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+        $lines[] = '';
+        $lines[] = 'Hinweis:';
+        $lines[] = 'Antwort 1 bedeutet, dass der Miniserver den Befehl akzeptiert hat. Falls keine sichtbare Aktion erfolgt, ist meist die ActionUUID nicht mit einer sichtbaren Funktion verknüpft oder der Loxone-Baustein ist gesperrt/nicht verdrahtet.';
+
+        return implode("\n", $lines);
+    }
+
+    public function TestCommandVariants()
+    {
+        $commands = $this->CommandVariantsForCurrentDevice();
+        $lines = [];
+        $lines[] = 'Command-Varianten-Test';
+        $lines[] = 'Control: ' . $this->ReadPropertyString('ControlName');
+        $lines[] = 'Typ: ' . $this->ReadPropertyString('ControlType');
+        $lines[] = 'Klasse: ' . $this->HumanDeviceClassLabel($this->DetectDeviceClass());
+        $lines[] = 'ActionUUID: ' . $this->ReadPropertyString('ActionUUID');
+        $lines[] = '';
+
+        foreach ($commands as $command) {
+            try {
+                $result = $this->SendCommand($command);
+                $lines[] = $command . ' => OK, Antwort: ' . (is_array($result) ? json_encode($result, JSON_UNESCAPED_UNICODE) : (string)$result);
+                IPS_Sleep(300);
+            } catch (Throwable $e) {
+                $lines[] = $command . ' => FEHLER: ' . $e->getMessage();
+            }
+        }
+
+        $lines[] = '';
+        $lines[] = 'Wichtig: Bitte nur an ungefährlichen Test-Controls verwenden. Dieser Test sendet mehrere Befehle nacheinander.';
+        return implode("\n", $lines);
+    }
+
+    private function PreferredImpulseCommand(): string
+    {
+        $details = $this->DecodeJsonObject($this->ReadPropertyString('DetailsJson'));
+        foreach (['command', 'cmd', 'defaultCommand', 'action', 'pulseCommand'] as $key) {
+            if (isset($details[$key]) && is_string($details[$key]) && trim($details[$key]) !== '') {
+                return trim($details[$key]);
+            }
+        }
+        return 'pulse';
+    }
+
+    private function PreferredSwitchOnCommand(): string
+    {
+        return 'on';
+    }
+
+    private function PreferredSwitchOffCommand(): string
+    {
+        return 'off';
+    }
+
+    private function PreferredToggleCommand(): string
+    {
+        return 'pulse';
+    }
+
+    private function CommandVariantsForCurrentDevice(): array
+    {
+        $type = strtolower($this->ReadPropertyString('ControlType'));
+        if ($type === 'switch') {
+            return ['pulse', 'on', 'off'];
+        }
+        if ($type === 'pushbutton') {
+            return ['pulse', 'on', 'off', 'true', '1'];
+        }
+        return [$this->PreferredImpulseCommand(), 'pulse'];
     }
 
     public function UpdatePresentationValue(string $stateName, $rawValue)

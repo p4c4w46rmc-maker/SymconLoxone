@@ -1,49 +1,24 @@
-# SymconLoxone Sprint 15.5
+# SymconLoxone Sprint 16.5
 
-Ziel: Bedienvariablen (Auslösen, Tor auslösen, Scharf schalten usw.) werden direkt unter der Geräteinstanz angezeigt, damit sie im WebFront sichtbar und klickbar sind.
+## Inhalt
 
-Dieses Paket enthält einen Patch für `LoxoneDevice/module.php`.
+- `LoxoneDevice/module.php`
+- `LoxoneDevice/form.json`
 
-## Anwendung
+## Neu
 
-1. Datei `sprint15_5-webfront-control-flat.patch` in dein lokales Repository kopieren.
-2. Im Terminal im Repository ausführen:
+- Command-Diagnose je Device
+- Befehlsvarianten-Test je Device
+- Debug-Ausgabe bei jedem gesendeten Loxone-Befehl
+- DetailsJson wird für zukünftige Befehlslogik vorbereitet
+- Standardbefehle bleiben: Pushbutton = `pulse`, Switch = `on/off/pulse`
 
-```bash
-git apply sprint15_5-webfront-control-flat.patch
-```
+## Einspielen
 
-3. Commit & Push:
+1. Beide Dateien im lokalen Repository ersetzen.
+2. Commit & Push.
+3. In IP-Symcon Module aktualisieren.
+4. Betroffene Geräteinstanz öffnen und **Übernehmen** klicken.
+5. In der Geräteinstanz zuerst **Command-Diagnose** ausführen.
+6. **Befehlsvarianten testen** nur an ungefährlichen Testgeräten verwenden.
 
-```bash
-git add LoxoneDevice/module.php
-git commit -m "Sprint 15.5 flatten WebFront control variables"
-git push
-```
-
-4. In IP-Symcon:
-   - Module aktualisieren
-   - Geräte-Instanzen erzeugen/aktualisieren
-   - Bestehende Geräteinstanzen einmal „Übernehmen“
-   - WebFront neu laden
-
-## Wirkung
-
-Vorher:
-
-```text
-Gerät
-└── Bedienung
-    └── Auslösen
-```
-
-Nachher:
-
-```text
-Gerät
-├── Auslösen
-└── Status
-    └── Gesperrt
-```
-
-`Status`, `Informationen` und `Technik` bleiben als Kategorien erhalten.
