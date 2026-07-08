@@ -627,6 +627,16 @@ Fehler: " . count($errors) . "
         }
 
         $this->SetTypedVariableValue($variableId, $rawValue);
+
+        $instanceId = (int)($entry['instanceId'] ?? 0);
+        if ($instanceId > 0 && IPS_InstanceExists($instanceId)) {
+            try {
+                LOXD_UpdatePresentationValue($instanceId, (string)($entry['stateName'] ?? ''), $rawValue);
+            } catch (Throwable $e) {
+                // Presentation variables are optional. Raw state updates must never fail because of UI mapping.
+            }
+        }
+
         $this->SetValue('LastLiveUpdate', date('Y-m-d H:i:s') . ' ' . (string)($entry['controlName'] ?? '') . ' / ' . (string)($entry['stateName'] ?? ''));
         return true;
     }

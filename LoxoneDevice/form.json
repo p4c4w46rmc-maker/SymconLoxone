@@ -23,7 +23,7 @@
     },
     {
       "type": "Label",
-      "caption": "Sprint 11: Pushbutton/Switch über ActionUUID steuern. Aktive Variable ist bei Switch/Pushbutton bedienbar."
+      "caption": "Sprint 12: WebFront-Variablen für Schalter, Pushbutton und Status. Technische UUID/State-Variablen werden in der Visualisierung versteckt."
     }
   ]
 }

@@ -1,21 +1,22 @@
 # SymconLoxone
 
-Sprint 11: Erste bidirektionale Steuerung.
+Sprint 12: WebFront- und Visualisierungsintegration.
 
 ## Neu
 
-- Loxone Device kann Standardbefehle senden
-- Pushbutton: `pulse`
-- Switch: `on`, `off`, `pulse`
-- Gateway-Methode `LOX_SendControlCommand()`
-- Device-Methoden `LOXD_Press()`, `LOXD_SwitchOn()`, `LOXD_SwitchOff()`, `LOXD_Toggle()`
-- Bei Switch/Pushbutton wird die Variable `active` als Aktion aktiviert
+- Technische Metadaten und rohe State-Variablen werden versteckt.
+- Loxone Device erzeugt sichtbare Bedien-/Statusvariablen:
+  - Switch: `Schalter`
+  - Pushbutton: `Auslösen`
+  - InfoOnlyDigital: `Status`
+  - NFC/Access: `Gesperrt`, `Gerätestatus`, `Letzter Benutzer`, `Letzter Tag`, `Letzter Code`
+- LiveEngine aktualisiert zusätzlich zu den Roh-States auch die WebFront-Variablen.
+- Schalter und Pushbuttons sind direkt in Symcon bedienbar.
 
 ## Test
 
-1. Modul aktualisieren
-2. Geräte-Instanzen prüfen
-3. Einen ungefährlichen Pushbutton/Switch auswählen
-4. In der Device-Instanz auf **Standardbefehl testen** klicken
-
-Hinweis: Garagentore/Alarm bitte erst testen, wenn klar ist, welches Control ausgelöst wird.
+1. Module aktualisieren.
+2. Gateway öffnen und `Geräte-Instanzen erzeugen / aktualisieren` ausführen.
+3. Eine Device-Instanz öffnen und `Übernehmen` klicken, falls sie bereits existierte.
+4. `LiveEngine Decoder Probe` ausführen.
+5. Im WebFront sollten die neuen Bedienvariablen sichtbar sein.

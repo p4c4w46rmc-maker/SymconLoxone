@@ -24,6 +24,10 @@ class LoxoneDevice extends IPSModule
         $this->RegisterVariableString('RoomName', 'Raum', '', 40);
         $this->RegisterVariableString('CategoryName', 'Kategorie', '', 50);
         $this->RegisterVariableString('GatewayIDText', 'Gateway Instanz', '', 60);
+
+        // Sprint 12: Frontend variables are created dynamically from the Loxone control type.
+        // Technical metadata and raw state variables remain available in the object tree,
+        // but are hidden from WebFront/visualization by default.
     }
 
     public function ApplyChanges()
@@ -42,7 +46,9 @@ class LoxoneDevice extends IPSModule
         $this->SetValue('CategoryName', $this->ReadPropertyString('CategoryName'));
         $this->SetValue('GatewayIDText', (string)$this->ReadPropertyInteger('GatewayID'));
 
+        $this->RegisterPresentationVariables();
         $this->RegisterStateVariables();
+        $this->ApplyVisibilityPolicy();
         $this->SetSummary($this->ReadPropertyString('ControlType'));
     }
 
@@ -109,25 +115,35 @@ Fehler: " . count($errors) . "
 
     public function RequestAction($ident, $value)
     {
-        if ((string)$ident === 'State_active') {
-            $controlType = strtolower($this->ReadPropertyString('ControlType'));
+        $ident = (string)$ident;
+        $controlType = strtolower($this->ReadPropertyString('ControlType'));
+
+        if ($ident === 'Display_Switch' || $ident === 'State_active') {
             if ($controlType === 'switch') {
                 if ((bool)$value) {
                     $this->SwitchOn();
                 } else {
                     $this->SwitchOff();
                 }
-                $this->SetValue('State_active', (bool)$value);
+                $this->SetValueIfExists('Display_Switch', (bool)$value);
+                $this->SetValueIfExists('State_active', (bool)$value);
                 return;
             }
 
             if ($controlType === 'pushbutton') {
                 $this->Press();
+                $this->SetValueIfExists('Display_Press', false);
                 return;
             }
         }
 
-        throw new Exception('Keine Aktion für ' . (string)$ident . ' verfügbar.');
+        if ($ident === 'Display_Press') {
+            $this->Press();
+            $this->SetValueIfExists('Display_Press', false);
+            return;
+        }
+
+        throw new Exception('Keine Aktion für ' . $ident . ' verfügbar.');
     }
 
     public function SendCommand(string $command)
@@ -199,6 +215,215 @@ Fehler: " . count($errors) . "
         }
     }
 
+    public function UpdatePresentationValue(string $stateName, $rawValue)
+    {
+        $this->SetPresentationValueFromState($stateName, $rawValue);
+        return true;
+    }
+
+    private function RegisterPresentationVariables(): void
+    {
+        $type = strtolower($this->ReadPropertyString('ControlType'));
+        $states = $this->DecodeJsonObject($this->ReadPropertyString('StatesJson'));
+
+        if ($type === 'switch' && isset($states['active'])) {
+            $this->RegisterVariableBoolean('Display_Switch', 'Schalter', '~Switch', 1);
+            $this->EnableAction('Display_Switch');
+            $this->SetDefaultValueIfEmpty('Display_Switch', false);
+        }
+
+        if ($type === 'pushbutton') {
+            $this->RegisterVariableBoolean('Display_Press', 'Auslösen', '~Switch', 1);
+            $this->EnableAction('Display_Press');
+            $this->SetValueIfExists('Display_Press', false);
+        }
+
+        if ($type === 'infoonlydigital' && isset($states['active'])) {
+            $this->RegisterVariableBoolean('Display_Status', 'Status', '~Switch', 1);
+            $this->SetDefaultValueIfEmpty('Display_Status', false);
+        }
+
+        if (isset($states['jLocked'])) {
+            $this->RegisterVariableBoolean('Display_Locked', 'Gesperrt', '~Switch', 10);
+            $this->SetDefaultValueIfEmpty('Display_Locked', false);
+        }
+
+        if (isset($states['lockedOn'])) {
+            $this->RegisterVariableBoolean('Display_LockedOn', 'Gesperrt ein', '~Switch', 11);
+            $this->SetDefaultValueIfEmpty('Display_LockedOn', false);
+        }
+
+        if (isset($states['deviceState'])) {
+            $this->RegisterVariableInteger('Display_DeviceState', 'Gerätestatus', '', 20);
+            $this->SetDefaultValueIfEmpty('Display_DeviceState', 0);
+        }
+
+        if (isset($states['mode'])) {
+            $this->RegisterVariableInteger('Display_Mode', 'Modus', '', 21);
+            $this->SetDefaultValueIfEmpty('Display_Mode', 0);
+        }
+
+        if (isset($states['value'])) {
+            $this->RegisterVariableFloat('Display_Value', 'Wert', '', 22);
+            $this->SetDefaultValueIfEmpty('Display_Value', 0.0);
+        }
+
+        if (isset($states['lastuser'])) {
+            $this->RegisterVariableString('Display_LastUser', 'Letzter Benutzer', '', 30);
+        }
+
+        if (isset($states['lasttag'])) {
+            $this->RegisterVariableString('Display_LastTag', 'Letzter Tag', '', 31);
+        }
+
+        if (isset($states['lastcode'])) {
+            $this->RegisterVariableString('Display_LastCode', 'Letzter Code', '', 32);
+        }
+
+        if (isset($states['events'])) {
+            $this->RegisterVariableString('Display_Events', 'Ereignisse', '', 40);
+        }
+    }
+
+    private function ApplyVisibilityPolicy(): void
+    {
+        $technicalIdents = [
+            'ControlUUID', 'ActionUUID', 'ControlType', 'RoomName', 'CategoryName', 'GatewayIDText'
+        ];
+
+        foreach ($technicalIdents as $ident) {
+            $id = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+            if ($id !== false) {
+                @IPS_SetHidden($id, true);
+            }
+        }
+
+        $states = $this->DecodeJsonObject($this->ReadPropertyString('StatesJson'));
+        foreach ($states as $stateName => $stateUuid) {
+            $ident = 'State_' . $this->IdentFromString((string)$stateName);
+            $id = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+            if ($id !== false) {
+                @IPS_SetHidden($id, true);
+            }
+        }
+
+        foreach (IPS_GetChildrenIDs($this->InstanceID) as $childId) {
+            $object = IPS_GetObject($childId);
+            $ident = (string)($object['ObjectIdent'] ?? '');
+            if (str_starts_with($ident, 'Display_')) {
+                @IPS_SetHidden($childId, false);
+            }
+        }
+    }
+
+    private function SetPresentationValueFromState(string $stateName, $rawValue): void
+    {
+        $stateNameLower = strtolower($stateName);
+        $type = strtolower($this->ReadPropertyString('ControlType'));
+
+        if ($stateNameLower === 'active') {
+            if ($type === 'switch') {
+                $this->SetValueIfExists('Display_Switch', $this->ToBool($rawValue));
+            } elseif ($type === 'infoonlydigital') {
+                $this->SetValueIfExists('Display_Status', $this->ToBool($rawValue));
+            }
+            return;
+        }
+
+        if ($stateNameLower === 'jlocked') {
+            $this->SetValueIfExists('Display_Locked', $this->ToBool($rawValue));
+            return;
+        }
+
+        if ($stateNameLower === 'lockedon') {
+            $this->SetValueIfExists('Display_LockedOn', $this->ToBool($rawValue));
+            return;
+        }
+
+        if ($stateNameLower === 'devicestate') {
+            $this->SetValueIfExists('Display_DeviceState', (int)$rawValue);
+            return;
+        }
+
+        if ($stateNameLower === 'mode') {
+            $this->SetValueIfExists('Display_Mode', (int)$rawValue);
+            return;
+        }
+
+        if ($stateNameLower === 'value') {
+            $this->SetValueIfExists('Display_Value', (float)$rawValue);
+            return;
+        }
+
+        if ($stateNameLower === 'lastuser') {
+            $this->SetValueIfExists('Display_LastUser', (string)$rawValue);
+            return;
+        }
+
+        if ($stateNameLower === 'lasttag') {
+            $this->SetValueIfExists('Display_LastTag', (string)$rawValue);
+            return;
+        }
+
+        if ($stateNameLower === 'lastcode') {
+            $this->SetValueIfExists('Display_LastCode', (string)$rawValue);
+            return;
+        }
+
+        if ($stateNameLower === 'events') {
+            if (is_array($rawValue) || is_object($rawValue)) {
+                $this->SetValueIfExists('Display_Events', json_encode($rawValue, JSON_UNESCAPED_UNICODE));
+            } else {
+                $this->SetValueIfExists('Display_Events', (string)$rawValue);
+            }
+        }
+    }
+
+    private function SetValueIfExists(string $ident, $value): void
+    {
+        $id = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+        if ($id === false) {
+            return;
+        }
+
+        $variable = IPS_GetVariable($id);
+        switch ((int)$variable['VariableType']) {
+            case 0:
+                SetValueBoolean($id, $this->ToBool($value));
+                break;
+            case 1:
+                SetValueInteger($id, (int)$value);
+                break;
+            case 2:
+                SetValueFloat($id, (float)$value);
+                break;
+            case 3:
+                SetValueString($id, is_array($value) || is_object($value) ? json_encode($value, JSON_UNESCAPED_UNICODE) : (string)$value);
+                break;
+        }
+    }
+
+    private function SetDefaultValueIfEmpty(string $ident, $value): void
+    {
+        $id = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+        if ($id === false) {
+            return;
+        }
+
+        $this->SetValueIfExists($ident, $value);
+    }
+
+    private function ToBool($value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_numeric($value)) {
+            return ((float)$value) != 0.0;
+        }
+        return in_array(strtolower((string)$value), ['1', 'true', 'on', 'ein', 'yes'], true);
+    }
+
     private function SetTypedStateValue(string $ident, $rawValue): void
     {
         $variableId = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
@@ -250,6 +475,10 @@ Fehler: " . count($errors) . "
             $type = $this->VariableTypeForState($stateName, $controlType);
 
             if ($this->HasVariableWithIdent($ident)) {
+                $existingId = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+                if ($existingId !== false) {
+                    @IPS_SetHidden($existingId, true);
+                }
                 $position += 10;
                 continue;
             }
@@ -274,6 +503,11 @@ Fehler: " . count($errors) . "
                     $this->RegisterVariableString($ident, $caption, '', $position);
                     $this->SetValue($ident, $stateUuid);
                     break;
+            }
+
+            $createdId = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+            if ($createdId !== false) {
+                @IPS_SetHidden($createdId, true);
             }
 
             $position += 10;
