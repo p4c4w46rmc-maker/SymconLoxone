@@ -17,17 +17,6 @@ class LoxoneDevice extends IPSModule
         $this->RegisterPropertyString('CategoryName', '');
         $this->RegisterPropertyString('StatesJson', '{}');
         $this->RegisterPropertyString('DetailsJson', '{}');
-
-        $this->RegisterVariableString('ControlUUID', 'Control UUID', '', 10);
-        $this->RegisterVariableString('ActionUUID', 'Action UUID', '', 20);
-        $this->RegisterVariableString('ControlType', 'Control Typ', '', 30);
-        $this->RegisterVariableString('RoomName', 'Raum', '', 40);
-        $this->RegisterVariableString('CategoryName', 'Kategorie', '', 50);
-        $this->RegisterVariableString('GatewayIDText', 'Gateway Instanz', '', 60);
-
-        // Sprint 12: Frontend variables are created dynamically from the Loxone control type.
-        // Technical metadata and raw state variables remain available in the object tree,
-        // but are hidden from WebFront/visualization by default.
     }
 
     public function ApplyChanges()
@@ -39,39 +28,33 @@ class LoxoneDevice extends IPSModule
             IPS_SetName($this->InstanceID, $name);
         }
 
-        $this->SetValue('ControlUUID', $this->ReadPropertyString('ControlUUID'));
-        $this->SetValue('ActionUUID', $this->ReadPropertyString('ActionUUID'));
-        $this->SetValue('ControlType', $this->ReadPropertyString('ControlType'));
-        $this->SetValue('RoomName', $this->ReadPropertyString('RoomName'));
-        $this->SetValue('CategoryName', $this->ReadPropertyString('CategoryName'));
-        $this->SetValue('GatewayIDText', (string)$this->ReadPropertyInteger('GatewayID'));
-
+        $this->CreateBaseCategories();
+        $this->RegisterTechnicalVariables();
         $this->RegisterPresentationVariables();
         $this->RegisterStateVariables();
         $this->ApplyVisibilityPolicy();
-        $this->SetSummary($this->ReadPropertyString('ControlType'));
+
+        $this->SetSummary($this->HumanDeviceClassLabel($this->DetectDeviceClass()) . ' / ' . $this->ReadPropertyString('ControlType'));
     }
 
     public function RefreshMetadata()
     {
         $this->ApplyChanges();
-
         $states = $this->DecodeJsonObject($this->ReadPropertyString('StatesJson'));
         return "Metadaten aktualisiert\n" .
             "Control: " . $this->ReadPropertyString('ControlName') . "\n" .
             "Typ: " . $this->ReadPropertyString('ControlType') . "\n" .
+            "Klasse: " . $this->HumanDeviceClassLabel($this->DetectDeviceClass()) . "\n" .
             "Raum: " . $this->ReadPropertyString('RoomName') . "\n" .
             "Kategorie: " . $this->ReadPropertyString('CategoryName') . "\n" .
             "States: " . count($states);
     }
 
-
-
     public function RefreshStateValues()
     {
         $gatewayId = $this->ReadPropertyInteger('GatewayID');
         if ($gatewayId <= 0 || !IPS_InstanceExists($gatewayId)) {
-            return "Kein gültiges Gateway hinterlegt.";
+            return 'Kein gültiges Gateway hinterlegt.';
         }
 
         $states = $this->DecodeJsonObject($this->ReadPropertyString('StatesJson'));
@@ -82,41 +65,37 @@ class LoxoneDevice extends IPSModule
             $stateName = (string)$stateName;
             $stateUuid = (string)$stateUuid;
             $ident = 'State_' . $this->IdentFromString($stateName);
-
-            if (!$this->HasVariableWithIdent($ident)) {
+            $variableId = $this->FindObjectIDByIdent($ident);
+            if ($variableId === false) {
                 continue;
             }
 
             try {
                 $rawValue = LOX_GetStateValue($gatewayId, $stateUuid);
-                $this->SetTypedStateValue($ident, $rawValue);
+                $this->SetTypedStateValueByID((int)$variableId, $rawValue);
+                $this->SetPresentationValueFromState($stateName, $rawValue);
                 $updated++;
             } catch (Throwable $e) {
                 $errors[] = $stateName . ': ' . $e->getMessage();
             }
         }
 
-        $text = "Statuswerte aktualisiert
-" .
-            "Control: " . $this->ReadPropertyString('ControlName') . "
-" .
+        $text = "Statuswerte aktualisiert\n" .
+            "Control: " . $this->ReadPropertyString('ControlName') . "\n" .
             "Aktualisiert: " . $updated;
 
         if (count($errors) > 0) {
-            $text .= "
-Fehler: " . count($errors) . "
-" . implode("
-", array_slice($errors, 0, 5));
+            $text .= "\nFehler: " . count($errors) . "\n" . implode("\n", array_slice($errors, 0, 5));
         }
 
         return $text;
     }
 
-
     public function RequestAction($ident, $value)
     {
         $ident = (string)$ident;
         $controlType = strtolower($this->ReadPropertyString('ControlType'));
+        $class = $this->DetectDeviceClass();
 
         if ($ident === 'Display_Switch' || $ident === 'State_active') {
             if ($controlType === 'switch') {
@@ -143,7 +122,31 @@ Fehler: " . count($errors) . "
             return;
         }
 
-        throw new Exception('Keine Aktion für ' . $ident . ' verfügbar.');
+        if ($ident === 'Display_GatePulse') {
+            // Torsignale sind Impulse. Der WebFront-Schalter wird nach dem Senden
+            // direkt wieder zurückgesetzt; den echten Zustand liefert Loxone über
+            // den Live-Status.
+            $this->Press();
+            $this->SetValueIfExists('Display_GatePulse', false);
+            return;
+        }
+
+        if ($ident === 'Display_AlarmAction') {
+            // Achtung: Alarmaktionen werden nur für importierte Pushbuttons ausgelöst.
+            // Eine zusätzliche Sicherheitsabfrage muss auf WebFront-/Skript-Ebene
+            // erfolgen, falls gewünscht.
+            $this->Press();
+            $this->SetValueIfExists('Display_AlarmAction', false);
+            return;
+        }
+
+        if ($ident === 'Display_AccessOpen') {
+            $this->Press();
+            $this->SetValueIfExists('Display_AccessOpen', false);
+            return;
+        }
+
+        throw new Exception('Keine Aktion für ' . $ident . ' verfügbar. Klasse: ' . $class);
     }
 
     public function SendCommand(string $command)
@@ -189,6 +192,8 @@ Fehler: " . count($errors) . "
     public function TestCommand()
     {
         $type = strtolower($this->ReadPropertyString('ControlType'));
+        $class = $this->DetectDeviceClass();
+
         try {
             if ($type === 'switch') {
                 $result = $this->Toggle();
@@ -197,13 +202,15 @@ Fehler: " . count($errors) . "
                 $result = $this->Press();
                 $command = 'pulse';
             } else {
-                return "Für diesen Control-Typ ist in Sprint 11 noch kein Standardbefehl hinterlegt.\n" .
-                    "Typ: " . $this->ReadPropertyString('ControlType');
+                return "Für diesen Control-Typ ist kein Standardbefehl hinterlegt.\n" .
+                    "Typ: " . $this->ReadPropertyString('ControlType') . "\n" .
+                    "Klasse: " . $this->HumanDeviceClassLabel($class);
             }
 
             return "Befehl gesendet\n" .
                 "Control: " . $this->ReadPropertyString('ControlName') . "\n" .
                 "Typ: " . $this->ReadPropertyString('ControlType') . "\n" .
+                "Klasse: " . $this->HumanDeviceClassLabel($class) . "\n" .
                 "ActionUUID: " . $this->ReadPropertyString('ActionUUID') . "\n" .
                 "Befehl: " . $command . "\n" .
                 "Antwort: " . (is_array($result) ? json_encode($result, JSON_UNESCAPED_UNICODE) : (string)$result);
@@ -221,131 +228,210 @@ Fehler: " . count($errors) . "
         return true;
     }
 
+    public function ActionDiagnostics()
+    {
+        $idents = [
+            'Display_Switch',
+            'Display_Press',
+            'Display_GatePulse',
+            'Display_AlarmAction',
+            'Display_AccessOpen'
+        ];
+
+        $lines = [];
+        $lines[] = 'Action-Diagnose';
+        $lines[] = 'Control: ' . $this->ReadPropertyString('ControlName');
+        $lines[] = 'Typ: ' . $this->ReadPropertyString('ControlType');
+        $lines[] = 'Klasse: ' . $this->HumanDeviceClassLabel($this->DetectDeviceClass());
+        $lines[] = 'GatewayID: ' . (string)$this->ReadPropertyInteger('GatewayID');
+        $lines[] = 'ActionUUID: ' . $this->ReadPropertyString('ActionUUID');
+        $lines[] = '';
+
+        foreach ($idents as $ident) {
+            $id = $this->FindObjectIDByIdent($ident);
+            if ($id === false) {
+                continue;
+            }
+            $var = IPS_GetVariable((int)$id);
+            $action = (int)($var['VariableCustomAction'] ?? 0);
+            $lines[] = $ident . ' → VariableID ' . (string)$id . ', CustomAction ' . (string)$action;
+        }
+
+        return implode("\n", $lines);
+    }
+
+    private function CreateBaseCategories(): void
+    {
+        $this->EnsureCategory('Cat_Control', 'Bedienung', 10, 'Execute');
+        $this->EnsureCategory('Cat_Status', 'Status', 20, 'Information');
+        $this->EnsureCategory('Cat_Info', 'Informationen', 30, 'Information');
+        $this->EnsureCategory('Cat_Technical', 'Technik', 900, 'Database');
+    }
+
+    private function RegisterTechnicalVariables(): void
+    {
+        $technicalParent = $this->EnsureCategory('Cat_Technical', 'Technik', 900, 'Database');
+
+        $this->EnsureVariableString('ControlUUID', 'Control UUID', '', 10, $technicalParent, false);
+        $this->EnsureVariableString('ActionUUID', 'Action UUID', '', 20, $technicalParent, false);
+        $this->EnsureVariableString('ControlType', 'Control Typ', '', 30, $technicalParent, false);
+        $this->EnsureVariableString('RoomName', 'Raum', '', 40, $technicalParent, false);
+        $this->EnsureVariableString('CategoryName', 'Kategorie', '', 50, $technicalParent, false);
+        $this->EnsureVariableString('GatewayIDText', 'Gateway Instanz', '', 60, $technicalParent, false);
+        $this->EnsureVariableString('DeviceClass', 'Geräteklasse', '', 70, $technicalParent, false);
+
+        $this->SetValueIfExists('ControlUUID', $this->ReadPropertyString('ControlUUID'));
+        $this->SetValueIfExists('ActionUUID', $this->ReadPropertyString('ActionUUID'));
+        $this->SetValueIfExists('ControlType', $this->ReadPropertyString('ControlType'));
+        $this->SetValueIfExists('RoomName', $this->ReadPropertyString('RoomName'));
+        $this->SetValueIfExists('CategoryName', $this->ReadPropertyString('CategoryName'));
+        $this->SetValueIfExists('GatewayIDText', (string)$this->ReadPropertyInteger('GatewayID'));
+        $this->SetValueIfExists('DeviceClass', $this->HumanDeviceClassLabel($this->DetectDeviceClass()));
+    }
+
     private function RegisterPresentationVariables(): void
     {
         $type = strtolower($this->ReadPropertyString('ControlType'));
         $name = $this->ReadPropertyString('ControlName');
-        $category = $this->ReadPropertyString('CategoryName');
         $states = $this->DecodeJsonObject($this->ReadPropertyString('StatesJson'));
         $class = $this->DetectDeviceClass();
 
+        $controlParent = $this->EnsureCategory('Cat_Control', 'Bedienung', 10, 'Execute');
+        $statusParent = $this->EnsureCategory('Cat_Status', 'Status', 20, 'Information');
+        $infoParent = $this->EnsureCategory('Cat_Info', 'Informationen', 30, 'Information');
+
         if ($type === 'switch' && isset($states['active'])) {
             $caption = $class === 'gate' ? 'Tor schalten' : 'Schalter';
-            $this->RegisterVariableBoolean('Display_Switch', $caption, '~Switch', 1);
-            $this->SetVariableCaption('Display_Switch', $caption);
-            $this->EnableAction('Display_Switch');
-            $this->SetDefaultValueIfEmpty('Display_Switch', false);
+            $this->EnsureVariableBoolean('Display_Switch', $caption, '~Switch', 1, $controlParent, true);
         }
 
         if ($type === 'pushbutton') {
-            $caption = $this->ActionCaptionForDeviceClass($class, $name);
-            $this->RegisterVariableBoolean('Display_Press', $caption, '~Switch', 1);
-            $this->SetVariableCaption('Display_Press', $caption);
-            $this->EnableAction('Display_Press');
-            $this->SetValueIfExists('Display_Press', false);
+            if ($class === 'gate') {
+                $this->EnsureVariableBoolean('Display_GatePulse', 'Tor auslösen', '~Switch', 1, $controlParent, true);
+                $this->SetValueIfExists('Display_GatePulse', false);
+            } elseif ($class === 'alarm') {
+                $this->EnsureVariableBoolean('Display_AlarmAction', $this->ActionCaptionForDeviceClass($class, $name), '~Switch', 1, $controlParent, true);
+                $this->SetValueIfExists('Display_AlarmAction', false);
+            } elseif ($class === 'access' || $class === 'nfc') {
+                $this->EnsureVariableBoolean('Display_AccessOpen', 'Öffnen / Auslösen', '~Switch', 1, $controlParent, true);
+                $this->SetValueIfExists('Display_AccessOpen', false);
+            } else {
+                $this->EnsureVariableBoolean('Display_Press', $this->ActionCaptionForDeviceClass($class, $name), '~Switch', 1, $controlParent, true);
+                $this->SetValueIfExists('Display_Press', false);
+            }
         }
 
         if ($type === 'infoonlydigital' && isset($states['active'])) {
-            $caption = $this->StatusCaptionForDeviceClass($class, $name);
-            $this->RegisterVariableBoolean('Display_Status', $caption, '~Switch', 1);
-            $this->SetVariableCaption('Display_Status', $caption);
-            $this->SetDefaultValueIfEmpty('Display_Status', false);
+            $this->EnsureVariableBoolean('Display_Status', $this->StatusCaptionForDeviceClass($class, $name), '~Switch', 1, $statusParent, false);
         }
 
         if ($type === 'daytimer') {
             if (isset($states['value'])) {
-                $this->RegisterVariableBoolean('Display_DaytimerActive', 'Aktiv', '~Switch', 20);
-                $this->SetVariableCaption('Display_DaytimerActive', 'Aktiv');
-                $this->SetDefaultValueIfEmpty('Display_DaytimerActive', false);
+                $this->EnsureVariableBoolean('Display_DaytimerActive', 'Aktiv', '~Switch', 10, $statusParent, false);
             }
             if (isset($states['override'])) {
-                $this->RegisterVariableBoolean('Display_DaytimerOverride', 'Override', '~Switch', 21);
-                $this->SetVariableCaption('Display_DaytimerOverride', 'Override');
-                $this->SetDefaultValueIfEmpty('Display_DaytimerOverride', false);
+                $this->EnsureVariableBoolean('Display_DaytimerOverride', 'Override', '~Switch', 20, $controlParent, false);
             }
         }
 
         if (isset($states['jLocked'])) {
-            $caption = $class === 'nfc' ? 'Bedienung gesperrt' : 'Gesperrt';
-            $this->RegisterVariableBoolean('Display_Locked', $caption, '~Switch', 10);
-            $this->SetVariableCaption('Display_Locked', $caption);
-            $this->SetDefaultValueIfEmpty('Display_Locked', false);
+            $caption = ($class === 'nfc' || $class === 'access') ? 'Bedienung gesperrt' : 'Gesperrt';
+            $this->EnsureVariableBoolean('Display_Locked', $caption, '~Switch', 10, $statusParent, false);
         }
 
         if (isset($states['lockedOn'])) {
-            $this->RegisterVariableBoolean('Display_LockedOn', 'Gesperrt ein', '~Switch', 11);
-            $this->SetVariableCaption('Display_LockedOn', 'Gesperrt ein');
-            $this->SetDefaultValueIfEmpty('Display_LockedOn', false);
+            $this->EnsureVariableBoolean('Display_LockedOn', 'Gesperrt ein', '~Switch', 11, $statusParent, false);
         }
 
         if (isset($states['deviceState']) && in_array($class, ['nfc', 'access'], true)) {
-            $this->RegisterVariableInteger('Display_DeviceState', 'Gerätestatus', '', 20);
-            $this->SetVariableCaption('Display_DeviceState', 'Gerätestatus');
-            $this->SetDefaultValueIfEmpty('Display_DeviceState', 0);
+            $this->EnsureVariableInteger('Display_DeviceState', 'Gerätestatus', '', 20, $statusParent, false);
         }
 
-        // Generic mode/value are useful for unknown controls, but too noisy for Daytimer/NFC/Gate views.
         if (isset($states['mode']) && !in_array($class, ['daytimer', 'nfc', 'gate', 'access'], true)) {
-            $this->RegisterVariableInteger('Display_Mode', 'Modus', '', 21);
-            $this->SetVariableCaption('Display_Mode', 'Modus');
-            $this->SetDefaultValueIfEmpty('Display_Mode', 0);
+            $this->EnsureVariableInteger('Display_Mode', 'Modus', '', 21, $statusParent, false);
         }
 
         if (isset($states['value']) && !in_array($class, ['daytimer'], true)) {
-            $this->RegisterVariableFloat('Display_Value', 'Wert', '', 22);
-            $this->SetVariableCaption('Display_Value', 'Wert');
-            $this->SetDefaultValueIfEmpty('Display_Value', 0.0);
+            $this->EnsureVariableFloat('Display_Value', 'Wert', '', 22, $statusParent, false);
         }
 
         if (isset($states['lastuser'])) {
-            $this->RegisterVariableString('Display_LastUser', 'Letzter Benutzer', '', 30);
-            $this->SetVariableCaption('Display_LastUser', 'Letzter Benutzer');
+            $this->EnsureVariableString('Display_LastUser', 'Letzter Benutzer', '', 30, $infoParent, false);
         }
-
         if (isset($states['lasttag'])) {
-            $this->RegisterVariableString('Display_LastTag', 'Letzter Tag', '', 31);
-            $this->SetVariableCaption('Display_LastTag', 'Letzter Tag');
+            $this->EnsureVariableString('Display_LastTag', 'Letzter Tag', '', 31, $infoParent, false);
         }
-
         if (isset($states['lastcode'])) {
-            $this->RegisterVariableString('Display_LastCode', 'Letzter Code', '', 32);
-            $this->SetVariableCaption('Display_LastCode', 'Letzter Code');
+            $this->EnsureVariableString('Display_LastCode', 'Letzter Code', '', 32, $infoParent, false);
         }
-
         if (isset($states['events']) && in_array($class, ['nfc', 'access'], true)) {
-            $this->RegisterVariableString('Display_Events', 'Ereignisse', '', 40);
-            $this->SetVariableCaption('Display_Events', 'Ereignisse');
+            $this->EnsureVariableString('Display_Events', 'Ereignisse', '', 40, $infoParent, false);
+        }
+    }
+
+    private function RegisterStateVariables(): void
+    {
+        $states = $this->DecodeJsonObject($this->ReadPropertyString('StatesJson'));
+        $controlType = $this->ReadPropertyString('ControlType');
+        $parentId = $this->EnsureCategory('Cat_Technical', 'Technik', 900, 'Database');
+        $position = 100;
+
+        foreach ($states as $stateName => $stateUuid) {
+            $stateName = (string)$stateName;
+            $stateUuid = (string)$stateUuid;
+            $ident = 'State_' . $this->IdentFromString($stateName);
+            $caption = $this->CaptionForState($stateName) . ' [' . $stateName . ']';
+            $type = $this->VariableTypeForState($stateName, $controlType);
+
+            switch ($type) {
+                case 0:
+                    $this->EnsureVariableBoolean($ident, $caption, '~Switch', $position, $parentId, false);
+                    $this->SetValueIfExists($ident, false);
+                    break;
+                case 1:
+                    $this->EnsureVariableInteger($ident, $caption, '', $position, $parentId, false);
+                    $this->SetValueIfExists($ident, 0);
+                    break;
+                case 2:
+                    $this->EnsureVariableFloat($ident, $caption, $this->ProfileForFloatState($stateName), $position, $parentId, false);
+                    $this->SetValueIfExists($ident, 0.0);
+                    break;
+                default:
+                    $this->EnsureVariableString($ident, $caption, '', $position, $parentId, false);
+                    $this->SetValueIfExists($ident, $stateUuid);
+                    break;
+            }
+
+            $id = $this->FindObjectIDByIdent($ident);
+            if ($id !== false) {
+                @IPS_SetHidden((int)$id, true);
+            }
+            $position += 10;
         }
     }
 
     private function ApplyVisibilityPolicy(): void
     {
-        $technicalIdents = [
-            'ControlUUID', 'ActionUUID', 'ControlType', 'RoomName', 'CategoryName', 'GatewayIDText'
+        $hideIdents = [
+            'ControlUUID', 'ActionUUID', 'ControlType', 'RoomName', 'CategoryName', 'GatewayIDText', 'DeviceClass'
         ];
-
-        foreach ($technicalIdents as $ident) {
-            $id = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+        foreach ($hideIdents as $ident) {
+            $id = $this->FindObjectIDByIdent($ident);
             if ($id !== false) {
-                @IPS_SetHidden($id, true);
+                @IPS_SetHidden((int)$id, true);
             }
         }
 
-        $states = $this->DecodeJsonObject($this->ReadPropertyString('StatesJson'));
-        foreach ($states as $stateName => $stateUuid) {
-            $ident = 'State_' . $this->IdentFromString((string)$stateName);
-            $id = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
-            if ($id !== false) {
-                @IPS_SetHidden($id, true);
-            }
+        $technicalId = $this->FindObjectIDByIdent('Cat_Technical');
+        if ($technicalId !== false) {
+            @IPS_SetHidden((int)$technicalId, true);
         }
 
         $hiddenDisplayIdents = $this->HiddenDisplayIdentsForDeviceClass();
-        foreach (IPS_GetChildrenIDs($this->InstanceID) as $childId) {
-            $object = IPS_GetObject($childId);
-            $ident = (string)($object['ObjectIdent'] ?? '');
-            if (str_starts_with($ident, 'Display_')) {
-                @IPS_SetHidden($childId, in_array($ident, $hiddenDisplayIdents, true));
+        foreach ($hiddenDisplayIdents as $ident) {
+            $id = $this->FindObjectIDByIdent($ident);
+            if ($id !== false) {
+                @IPS_SetHidden((int)$id, true);
             }
         }
     }
@@ -354,6 +440,7 @@ Fehler: " . count($errors) . "
     {
         $stateNameLower = strtolower($stateName);
         $type = strtolower($this->ReadPropertyString('ControlType'));
+        $class = $this->DetectDeviceClass();
 
         if ($stateNameLower === 'active') {
             if ($type === 'switch') {
@@ -363,27 +450,22 @@ Fehler: " . count($errors) . "
             }
             return;
         }
-
         if ($stateNameLower === 'jlocked') {
             $this->SetValueIfExists('Display_Locked', $this->ToBool($rawValue));
             return;
         }
-
         if ($stateNameLower === 'lockedon') {
             $this->SetValueIfExists('Display_LockedOn', $this->ToBool($rawValue));
             return;
         }
-
         if ($stateNameLower === 'devicestate') {
             $this->SetValueIfExists('Display_DeviceState', (int)$rawValue);
             return;
         }
-
         if ($stateNameLower === 'mode') {
             $this->SetValueIfExists('Display_Mode', (int)$rawValue);
             return;
         }
-
         if ($stateNameLower === 'value') {
             if ($type === 'daytimer') {
                 $this->SetValueIfExists('Display_DaytimerActive', $this->ToBool($rawValue));
@@ -392,33 +474,24 @@ Fehler: " . count($errors) . "
             }
             return;
         }
-
         if ($stateNameLower === 'override') {
             $this->SetValueIfExists('Display_DaytimerOverride', $this->ToBool($rawValue));
             return;
         }
-
         if ($stateNameLower === 'lastuser') {
             $this->SetValueIfExists('Display_LastUser', (string)$rawValue);
             return;
         }
-
         if ($stateNameLower === 'lasttag') {
             $this->SetValueIfExists('Display_LastTag', (string)$rawValue);
             return;
         }
-
         if ($stateNameLower === 'lastcode') {
             $this->SetValueIfExists('Display_LastCode', (string)$rawValue);
             return;
         }
-
         if ($stateNameLower === 'events') {
-            if (is_array($rawValue) || is_object($rawValue)) {
-                $this->SetValueIfExists('Display_Events', json_encode($rawValue, JSON_UNESCAPED_UNICODE));
-            } else {
-                $this->SetValueIfExists('Display_Events', (string)$rawValue);
-            }
+            $this->SetValueIfExists('Display_Events', $rawValue);
         }
     }
 
@@ -457,6 +530,23 @@ Fehler: " . count($errors) . "
             return 'temperature';
         }
         return 'generic';
+    }
+
+    private function HumanDeviceClassLabel(string $class): string
+    {
+        $labels = [
+            'daytimer' => 'Schaltuhr',
+            'nfc' => 'NFC Code Touch',
+            'gate' => 'Tor',
+            'access' => 'Zutritt',
+            'alarm' => 'Alarm',
+            'switch' => 'Schalter',
+            'pushbutton' => 'Taster',
+            'status' => 'Status',
+            'temperature' => 'Temperatur',
+            'generic' => 'Allgemein'
+        ];
+        return $labels[$class] ?? $class;
     }
 
     private function ActionCaptionForDeviceClass(string $class, string $name): string
@@ -513,79 +603,152 @@ Fehler: " . count($errors) . "
         return [];
     }
 
-    private function SetVariableCaption(string $ident, string $caption): void
+    private function EnsureCategory(string $ident, string $name, int $position, string $icon = ''): int
+    {
+        $id = $this->FindDirectObjectIDByIdent($ident);
+        if ($id === false) {
+            $id = IPS_CreateCategory();
+            IPS_SetParent($id, $this->InstanceID);
+            IPS_SetIdent($id, $ident);
+        }
+        IPS_SetName((int)$id, $name);
+        IPS_SetPosition((int)$id, $position);
+        if ($icon !== '') {
+            @IPS_SetIcon((int)$id, $icon);
+        }
+        return (int)$id;
+    }
+
+    private function EnsureVariableBoolean(string $ident, string $name, string $profile, int $position, int $parentId, bool $enableAction): int
+    {
+        return $this->EnsureVariable($ident, $name, 0, $profile, $position, $parentId, $enableAction);
+    }
+
+    private function EnsureVariableInteger(string $ident, string $name, string $profile, int $position, int $parentId, bool $enableAction): int
+    {
+        return $this->EnsureVariable($ident, $name, 1, $profile, $position, $parentId, $enableAction);
+    }
+
+    private function EnsureVariableFloat(string $ident, string $name, string $profile, int $position, int $parentId, bool $enableAction): int
+    {
+        return $this->EnsureVariable($ident, $name, 2, $profile, $position, $parentId, $enableAction);
+    }
+
+    private function EnsureVariableString(string $ident, string $name, string $profile, int $position, int $parentId, bool $enableAction): int
+    {
+        return $this->EnsureVariable($ident, $name, 3, $profile, $position, $parentId, $enableAction);
+    }
+
+    private function EnsureVariable(string $ident, string $name, int $type, string $profile, int $position, int $parentId, bool $enableAction): int
+    {
+        $id = $this->FindObjectIDByIdent($ident);
+        if ($id === false) {
+            switch ($type) {
+                case 0:
+                    $this->RegisterVariableBoolean($ident, $name, $profile, $position);
+                    break;
+                case 1:
+                    $this->RegisterVariableInteger($ident, $name, $profile, $position);
+                    break;
+                case 2:
+                    $this->RegisterVariableFloat($ident, $name, $profile, $position);
+                    break;
+                default:
+                    $this->RegisterVariableString($ident, $name, $profile, $position);
+                    break;
+            }
+            $id = $this->FindDirectObjectIDByIdent($ident);
+        }
+
+        if ($id === false) {
+            throw new RuntimeException('Variable konnte nicht erstellt werden: ' . $ident);
+        }
+
+        IPS_SetName((int)$id, $name);
+        IPS_SetPosition((int)$id, $position);
+        if ($parentId > 0 && IPS_ObjectExists($parentId)) {
+            IPS_SetParent((int)$id, $parentId);
+        }
+        if ($profile !== '') {
+            @IPS_SetVariableCustomProfile((int)$id, $profile);
+        }
+
+        // Sprint 16: Bedienvariablen liegen inzwischen in Unterkategorien
+        // (Bedienung / Status / Informationen). IP-Symcons EnableAction($ident)
+        // arbeitet bei verschobenen Variablen nicht zuverlässig, weil die Variable
+        // nicht mehr direkt unter der Instanz liegt. Deshalb setzen wir die
+        // CustomAction direkt über die VariableID auf diese Geräteinstanz.
+        if ($enableAction) {
+            @IPS_SetVariableCustomAction((int)$id, $this->InstanceID);
+        } else {
+            @IPS_SetVariableCustomAction((int)$id, 0);
+        }
+
+        @IPS_SetHidden((int)$id, false);
+        return (int)$id;
+    }
+
+    private function FindDirectObjectIDByIdent(string $ident)
     {
         $id = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
-        if ($id !== false) {
-            @IPS_SetName($id, $caption);
+        return $id === false ? false : (int)$id;
+    }
+
+    private function FindObjectIDByIdent(string $ident)
+    {
+        $direct = $this->FindDirectObjectIDByIdent($ident);
+        if ($direct !== false) {
+            return $direct;
         }
+        return $this->FindObjectIDByIdentRecursive($this->InstanceID, $ident);
+    }
+
+    private function FindObjectIDByIdentRecursive(int $parentId, string $ident)
+    {
+        foreach (IPS_GetChildrenIDs($parentId) as $childId) {
+            $object = IPS_GetObject($childId);
+            if ((string)($object['ObjectIdent'] ?? '') === $ident) {
+                return (int)$childId;
+            }
+            if ((int)$object['ObjectType'] === 0) {
+                $found = $this->FindObjectIDByIdentRecursive((int)$childId, $ident);
+                if ($found !== false) {
+                    return $found;
+                }
+            }
+        }
+        return false;
     }
 
     private function SetValueIfExists(string $ident, $value): void
     {
-        $id = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+        $id = $this->FindObjectIDByIdent($ident);
         if ($id === false) {
             return;
         }
-
-        $variable = IPS_GetVariable($id);
+        $variable = IPS_GetVariable((int)$id);
         switch ((int)$variable['VariableType']) {
             case 0:
-                SetValueBoolean($id, $this->ToBool($value));
+                SetValueBoolean((int)$id, $this->ToBool($value));
                 break;
             case 1:
-                SetValueInteger($id, (int)$value);
+                SetValueInteger((int)$id, (int)$value);
                 break;
             case 2:
-                SetValueFloat($id, (float)$value);
+                SetValueFloat((int)$id, (float)$value);
                 break;
             case 3:
-                SetValueString($id, is_array($value) || is_object($value) ? json_encode($value, JSON_UNESCAPED_UNICODE) : (string)$value);
+                SetValueString((int)$id, is_array($value) || is_object($value) ? json_encode($value, JSON_UNESCAPED_UNICODE) : (string)$value);
                 break;
         }
     }
 
-    private function SetDefaultValueIfEmpty(string $ident, $value): void
+    private function SetTypedStateValueByID(int $variableId, $rawValue): void
     {
-        $id = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
-        if ($id === false) {
-            return;
-        }
-
-        $this->SetValueIfExists($ident, $value);
-    }
-
-    private function ToBool($value): bool
-    {
-        if (is_bool($value)) {
-            return $value;
-        }
-        if (is_numeric($value)) {
-            return ((float)$value) != 0.0;
-        }
-        return in_array(strtolower((string)$value), ['1', 'true', 'on', 'ein', 'yes'], true);
-    }
-
-    private function SetTypedStateValue(string $ident, $rawValue): void
-    {
-        $variableId = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
-        if ($variableId === false) {
-            return;
-        }
-
         $variable = IPS_GetVariable($variableId);
-        $type = (int)$variable['VariableType'];
-
-        switch ($type) {
+        switch ((int)$variable['VariableType']) {
             case 0:
-                if (is_bool($rawValue)) {
-                    $value = $rawValue;
-                } elseif (is_numeric($rawValue)) {
-                    $value = ((float)$rawValue) != 0.0;
-                } else {
-                    $value = in_array(strtolower((string)$rawValue), ['1', 'true', 'on', 'ein', 'yes'], true);
-                }
-                SetValueBoolean($variableId, $value);
+                SetValueBoolean($variableId, $this->ToBool($rawValue));
                 break;
             case 1:
                 SetValueInteger($variableId, (int)$rawValue);
@@ -594,104 +757,35 @@ Fehler: " . count($errors) . "
                 SetValueFloat($variableId, (float)$rawValue);
                 break;
             case 3:
-                if (is_array($rawValue) || is_object($rawValue)) {
-                    SetValueString($variableId, json_encode($rawValue, JSON_UNESCAPED_UNICODE));
-                } else {
-                    SetValueString($variableId, (string)$rawValue);
-                }
+                SetValueString($variableId, is_array($rawValue) || is_object($rawValue) ? json_encode($rawValue, JSON_UNESCAPED_UNICODE) : (string)$rawValue);
                 break;
         }
-    }
-
-    private function RegisterStateVariables(): void
-    {
-        $states = $this->DecodeJsonObject($this->ReadPropertyString('StatesJson'));
-        $controlType = $this->ReadPropertyString('ControlType');
-        $position = 100;
-
-        foreach ($states as $stateName => $stateUuid) {
-            $stateName = (string)$stateName;
-            $stateUuid = (string)$stateUuid;
-            $ident = 'State_' . $this->IdentFromString($stateName);
-            $caption = $this->CaptionForState($stateName) . ' [' . $stateName . ']';
-            $type = $this->VariableTypeForState($stateName, $controlType);
-
-            if ($this->HasVariableWithIdent($ident)) {
-                $existingId = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
-                if ($existingId !== false) {
-                    @IPS_SetHidden($existingId, true);
-                }
-                $position += 10;
-                continue;
-            }
-
-            switch ($type) {
-                case 0:
-                    $this->RegisterVariableBoolean($ident, $caption, '~Switch', $position);
-                    if ($stateName === 'active' && in_array(strtolower($controlType), ['switch', 'pushbutton'], true)) {
-                        $this->EnableAction($ident);
-                    }
-                    $this->SetValue($ident, false);
-                    break;
-                case 1:
-                    $this->RegisterVariableInteger($ident, $caption, '', $position);
-                    $this->SetValue($ident, 0);
-                    break;
-                case 2:
-                    $this->RegisterVariableFloat($ident, $caption, $this->ProfileForFloatState($stateName), $position);
-                    $this->SetValue($ident, 0.0);
-                    break;
-                default:
-                    $this->RegisterVariableString($ident, $caption, '', $position);
-                    $this->SetValue($ident, $stateUuid);
-                    break;
-            }
-
-            $createdId = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
-            if ($createdId !== false) {
-                @IPS_SetHidden($createdId, true);
-            }
-
-            $position += 10;
-        }
-    }
-
-    private function HasVariableWithIdent(string $ident): bool
-    {
-        $id = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
-        return $id !== false;
     }
 
     private function DecodeJsonObject(string $json): array
     {
         $data = json_decode($json, true);
-        if (!is_array($data)) {
-            return [];
-        }
-        return $data;
+        return is_array($data) ? $data : [];
     }
 
     private function VariableTypeForState(string $stateName, string $controlType): int
     {
         $name = strtolower($stateName);
         $boolStates = [
-            'active', 'jlocked', 'lockedon', 'resetactive', 'needsactivation', 'opened', 'closed',
-            'online', 'offline', 'certificatevalid', 'hasinternet', 'changed'
+            'active', 'jlocked', 'lockedon', 'resetactive', 'needsactivation', 'opened',
+            'closed', 'online', 'offline', 'certificatevalid', 'hasinternet', 'changed'
         ];
         if (in_array($name, $boolStates, true)) {
             return 0;
         }
-
         $integerStates = ['mode', 'devicestate', 'keypadauthtype', 'lastid'];
         if (in_array($name, $integerStates, true)) {
             return 1;
         }
-
         $floatStates = ['value', 'position', 'temperature', 'humidity', 'brightness', 'speed'];
         if (in_array($name, $floatStates, true)) {
             return 2;
         }
-
         return 3;
     }
 
@@ -703,6 +797,9 @@ Fehler: " . count($errors) . "
         }
         if (str_contains($name, 'humidity')) {
             return '~Humidity';
+        }
+        if (str_contains($name, 'position') || str_contains($name, 'brightness')) {
+            return '~Intensity.100';
         }
         return '';
     }
@@ -725,8 +822,18 @@ Fehler: " . count($errors) . "
             'events' => 'Ereignisse',
             'override' => 'Override'
         ];
-
         return $labels[$stateName] ?? ucfirst($stateName);
+    }
+
+    private function ToBool($value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_numeric($value)) {
+            return ((float)$value) != 0.0;
+        }
+        return in_array(strtolower((string)$value), ['1', 'true', 'on', 'ein', 'yes'], true);
     }
 
     private function IdentFromString(string $value): string
