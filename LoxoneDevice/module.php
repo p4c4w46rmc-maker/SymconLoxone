@@ -373,6 +373,25 @@ class LoxoneDevice extends IPSModule
         return implode("\n", $lines);
     }
 
+    public function InspectControl()
+    {
+        $states = $this->DecodeJsonObject($this->ReadPropertyString('StatesJson'));
+        $details = $this->DecodeJsonObject($this->ReadPropertyString('DetailsJson'));
+
+        return "Control-Inspector\n" .
+            "Name: " . $this->ReadPropertyString('ControlName') . "\n" .
+            "Typ: " . $this->ReadPropertyString('ControlType') . "\n" .
+            "Klasse: " . $this->HumanDeviceClassLabel($this->DetectDeviceClass()) . "\n" .
+            "Raum: " . $this->ReadPropertyString('RoomName') . "\n" .
+            "Kategorie: " . $this->ReadPropertyString('CategoryName') . "\n" .
+            "ControlUUID: " . $this->ReadPropertyString('ControlUUID') . "\n" .
+            "ActionUUID: " . $this->ReadPropertyString('ActionUUID') . "\n\n" .
+            "States:\n" .
+            json_encode($states, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n\n" .
+            "Details:\n" .
+            json_encode($details, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+    }
+
     private function CreateBaseCategories(): void
     {
         // Sprint 15.5: Bedienvariablen liegen direkt unter der Geräteinstanz,
