@@ -33,6 +33,7 @@ class LoxoneDevice extends IPSModule
         $this->RegisterPresentationVariables();
         $this->RegisterStateVariables();
         $this->ApplyVisibilityPolicy();
+        $this->CleanupLegacyControlCategory();
 
         $this->SetSummary($this->HumanDeviceClassLabel($this->DetectDeviceClass()) . ' / ' . $this->ReadPropertyString('ControlType'));
     }
@@ -262,7 +263,10 @@ class LoxoneDevice extends IPSModule
 
     private function CreateBaseCategories(): void
     {
-        $this->EnsureCategory('Cat_Control', 'Bedienung', 10, 'Execute');
+        // Sprint 15.5: Bedienvariablen liegen direkt unter der Geräteinstanz,
+        // damit sie im WebFront sofort sichtbar und klickbar sind. Der alte
+        // Ordner "Bedienung" wird nicht mehr verwendet und bei bestehenden
+        // Installationen ausgeblendet.
         $this->EnsureCategory('Cat_Status', 'Status', 20, 'Information');
         $this->EnsureCategory('Cat_Info', 'Informationen', 30, 'Information');
         $this->EnsureCategory('Cat_Technical', 'Technik', 900, 'Database');
@@ -296,7 +300,9 @@ class LoxoneDevice extends IPSModule
         $states = $this->DecodeJsonObject($this->ReadPropertyString('StatesJson'));
         $class = $this->DetectDeviceClass();
 
-        $controlParent = $this->EnsureCategory('Cat_Control', 'Bedienung', 10, 'Execute');
+        // Sprint 15.5: Bedienvariablen direkt unter die Instanz legen.
+        // Status und Informationen bleiben in Kategorien gruppiert.
+        $controlParent = $this->InstanceID;
         $statusParent = $this->EnsureCategory('Cat_Status', 'Status', 20, 'Information');
         $infoParent = $this->EnsureCategory('Cat_Info', 'Informationen', 30, 'Information');
 
@@ -427,6 +433,14 @@ class LoxoneDevice extends IPSModule
             @IPS_SetHidden((int)$technicalId, true);
         }
 
+        // Sprint 15.5: Alter Bedienung-Ordner bleibt ggf. aus früheren Versionen
+        // bestehen. Er wird versteckt, damit im WebFront nur die direkten
+        // Bedienvariablen angezeigt werden.
+        $controlId = $this->FindObjectIDByIdent('Cat_Control');
+        if ($controlId !== false) {
+            @IPS_SetHidden((int)$controlId, true);
+        }
+
         $hiddenDisplayIdents = $this->HiddenDisplayIdentsForDeviceClass();
         foreach ($hiddenDisplayIdents as $ident) {
             $id = $this->FindObjectIDByIdent($ident);
@@ -434,6 +448,37 @@ class LoxoneDevice extends IPSModule
                 @IPS_SetHidden((int)$id, true);
             }
         }
+    }
+
+
+    private function CleanupLegacyControlCategory(): void
+    {
+        $controlCategoryId = $this->FindObjectIDByIdent('Cat_Control');
+        if ($controlCategoryId === false) {
+            return;
+        }
+
+        // Bedienvariablen aus dem alten Ordner direkt unter die Geräteinstanz verschieben.
+        $controlIdents = [
+            'Display_Switch',
+            'Display_Press',
+            'Display_GatePulse',
+            'Display_AlarmAction',
+            'Display_AccessOpen',
+            'Display_DaytimerOverride'
+        ];
+
+        foreach ($controlIdents as $ident) {
+            $id = $this->FindObjectIDByIdentRecursive((int)$controlCategoryId, $ident);
+            if ($id !== false) {
+                @IPS_SetParent((int)$id, $this->InstanceID);
+                @IPS_SetHidden((int)$id, false);
+            }
+        }
+
+        // Der alte Kategorieordner wird nicht gelöscht, damit keine fremden Objekte
+        // verloren gehen. Er wird nur versteckt.
+        @IPS_SetHidden((int)$controlCategoryId, true);
     }
 
     private function SetPresentationValueFromState(string $stateName, $rawValue): void
@@ -673,11 +718,10 @@ class LoxoneDevice extends IPSModule
             @IPS_SetVariableCustomProfile((int)$id, $profile);
         }
 
-        // Sprint 16: Bedienvariablen liegen inzwischen in Unterkategorien
-        // (Bedienung / Status / Informationen). IP-Symcons EnableAction($ident)
-        // arbeitet bei verschobenen Variablen nicht zuverlässig, weil die Variable
-        // nicht mehr direkt unter der Instanz liegt. Deshalb setzen wir die
-        // CustomAction direkt über die VariableID auf diese Geräteinstanz.
+        // Bedienvariablen können direkt unter der Instanz oder in Kategorien liegen.
+        // Die CustomAction setzen wir bewusst direkt über die VariableID auf diese
+        // Geräteinstanz, damit RequestAction auch nach Verschiebungen zuverlässig
+        // ausgelöst wird.
         if ($enableAction) {
             @IPS_SetVariableCustomAction((int)$id, $this->InstanceID);
         } else {
