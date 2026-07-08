@@ -1,0 +1,52 @@
+Füge diese Methode in LoxoneDevice/module.php ein, am besten direkt nach ActionDiagnostics() und vor private function CreateBaseCategories():
+
+public function InspectControl()
+{
+    $states = $this->DecodeJsonObject($this->ReadPropertyString('StatesJson'));
+    $details = $this->DecodeJsonObject($this->ReadPropertyString('DetailsJson'));
+
+    $lines = [];
+    $lines[] = 'Control-Inspector';
+    $lines[] = 'Name: ' . $this->ReadPropertyString('ControlName');
+    $lines[] = 'Typ: ' . $this->ReadPropertyString('ControlType');
+    $lines[] = 'Klasse: ' . $this->HumanDeviceClassLabel($this->DetectDeviceClass());
+    $lines[] = 'Raum: ' . $this->ReadPropertyString('RoomName');
+    $lines[] = 'Kategorie: ' . $this->ReadPropertyString('CategoryName');
+    $lines[] = 'GatewayID: ' . (string)$this->ReadPropertyInteger('GatewayID');
+    $lines[] = 'ControlUUID: ' . $this->ReadPropertyString('ControlUUID');
+    $lines[] = 'ActionUUID: ' . $this->ReadPropertyString('ActionUUID');
+    $lines[] = '';
+    $lines[] = 'States (' . count($states) . '):';
+
+    if (count($states) === 0) {
+        $lines[] = '- keine States -';
+    } else {
+        foreach ($states as $stateName => $stateUuid) {
+            $ident = 'State_' . $this->IdentFromString((string)$stateName);
+            $variableId = $this->FindObjectIDByIdent($ident);
+            $lines[] = '- ' . (string)$stateName . ' = ' . (string)$stateUuid . ' | Ident: ' . $ident . ' | VariableID: ' . ($variableId === false ? '-' : (string)$variableId);
+        }
+    }
+
+    $lines[] = '';
+    $lines[] = 'Details:';
+    if (count($details) === 0) {
+        $lines[] = '- keine Details -';
+    } else {
+        $pretty = json_encode($details, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $lines[] = $pretty === false ? '- Details konnten nicht kodiert werden -' : $pretty;
+    }
+
+    $lines[] = '';
+    $lines[] = 'Command-Hinweis:';
+    $type = strtolower($this->ReadPropertyString('ControlType'));
+    if ($type === 'pushbutton') {
+        $lines[] = 'Pushbutton: normalerweise pulse auf ActionUUID.';
+    } elseif ($type === 'switch') {
+        $lines[] = 'Switch: normalerweise on/off/pulse auf ActionUUID.';
+    } else {
+        $lines[] = 'Für diesen Typ muss der passende Befehl aus details/states abgeleitet werden.';
+    }
+
+    return implode("\n", $lines);
+}

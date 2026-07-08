@@ -23,13 +23,8 @@
     },
     {
       "type": "Button",
-      "caption": "Command-Diagnose",
+      "caption": "Action-Diagnose",
       "onClick": "echo LOXD_ActionDiagnostics($id);"
-    },
-    {
-      "type": "Button",
-      "caption": "Befehlsvarianten testen",
-      "onClick": "echo LOXD_TestCommandVariants($id);"
     },
     {
       "type": "Button",
@@ -38,7 +33,7 @@
     },
     {
       "type": "Label",
-      "caption": "Sprint 17: Control-Inspector zeigt ControlUUID, ActionUUID, StatesJson, DetailsJson und optional die Live-Definition aus der LoxAPP3."
+      "caption": "Sprint 17: Control-Inspector zur Diagnose von uuid, uuidAction, states und details."
     }
   ]
 }
