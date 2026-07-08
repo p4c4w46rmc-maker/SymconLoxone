@@ -1,0 +1,80 @@
+// Sprint 16.5 / 17: Diagnose- und Inspector-Funktionen
+// Diese Methoden in LoxoneDevice/module.php innerhalb der Klasse einfügen,
+// am besten direkt nach ActionDiagnostics().
+
+public function TestCommandVariants()
+{
+    $commands = ['pulse', 'on', 'off', 'true', '1'];
+    $lines = [];
+    $lines[] = 'Command-Varianten-Test';
+    $lines[] = 'Control: ' . $this->ReadPropertyString('ControlName');
+    $lines[] = 'Typ: ' . $this->ReadPropertyString('ControlType');
+    $lines[] = 'Klasse: ' . $this->HumanDeviceClassLabel($this->DetectDeviceClass());
+    $lines[] = 'ActionUUID: ' . $this->ReadPropertyString('ActionUUID');
+    $lines[] = '';
+
+    foreach ($commands as $command) {
+        try {
+            $result = $this->SendCommand($command);
+            $lines[] = $command . ' => OK, Antwort: ' . (is_array($result) ? json_encode($result, JSON_UNESCAPED_UNICODE) : (string)$result);
+        } catch (Throwable $e) {
+            $lines[] = $command . ' => FEHLER: ' . $e->getMessage();
+        }
+        IPS_Sleep(250);
+    }
+
+    $lines[] = '';
+    $lines[] = 'Wichtig: Bitte nur an ungefährlichen Test-Controls verwenden.';
+    $lines[] = 'Dieser Test sendet mehrere Befehle nacheinander.';
+
+    return implode("\n", $lines);
+}
+
+public function InspectControl()
+{
+    $gatewayId = $this->ReadPropertyInteger('GatewayID');
+    $controlUuid = trim($this->ReadPropertyString('ControlUUID'));
+    $actionUuid = trim($this->ReadPropertyString('ActionUUID'));
+    $states = $this->DecodeJsonObject($this->ReadPropertyString('StatesJson'));
+    $details = $this->DecodeJsonObject($this->ReadPropertyString('DetailsJson'));
+
+    $lines = [];
+    $lines[] = 'Control-Inspector';
+    $lines[] = 'Control: ' . $this->ReadPropertyString('ControlName');
+    $lines[] = 'Typ: ' . $this->ReadPropertyString('ControlType');
+    $lines[] = 'Klasse: ' . $this->HumanDeviceClassLabel($this->DetectDeviceClass());
+    $lines[] = 'Raum: ' . $this->ReadPropertyString('RoomName');
+    $lines[] = 'Kategorie: ' . $this->ReadPropertyString('CategoryName');
+    $lines[] = 'GatewayID: ' . (string)$gatewayId;
+    $lines[] = 'ControlUUID: ' . $controlUuid;
+    $lines[] = 'ActionUUID: ' . $actionUuid;
+    $lines[] = '';
+
+    $lines[] = 'States:';
+    if (count($states) === 0) {
+        $lines[] = '- keine States gespeichert -';
+    } else {
+        foreach ($states as $name => $uuid) {
+            $lines[] = (string)$name . ' = ' . (string)$uuid;
+        }
+    }
+
+    $lines[] = '';
+    $lines[] = 'DetailsJson:';
+    $lines[] = count($details) ? json_encode($details, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) : '- leer -';
+
+    if ($gatewayId > 0 && IPS_InstanceExists($gatewayId) && $controlUuid !== '') {
+        try {
+            $definition = LOX_GetControlDefinition($gatewayId, $controlUuid);
+            $lines[] = '';
+            $lines[] = 'LoxAPP3 Control-Definition:';
+            $lines[] = json_encode($definition, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+        } catch (Throwable $e) {
+            $lines[] = '';
+            $lines[] = 'LoxAPP3 Control-Definition konnte nicht geladen werden: ' . $e->getMessage();
+        }
+    }
+
+    $output = implode("\n", $lines);
+    return strlen($output) > 12000 ? substr($output, 0, 12000) . "\n... Ausgabe gekürzt ..." : $output;
+}

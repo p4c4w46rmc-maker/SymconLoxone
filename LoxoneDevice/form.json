@@ -1,39 +1,44 @@
 {
-    "elements": [
-        {
-            "type": "Label",
-            "caption": "Loxone Device. Diese Instanz wird automatisch vom Loxone Gateway erzeugt."
-        }
-    ],
-    "actions": [
-        {
-            "type": "Button",
-            "caption": "Metadaten aktualisieren",
-            "onClick": "echo LOXD_RefreshMetadata($id);"
-        },
-        {
-            "type": "Button",
-            "caption": "Statuswerte aktualisieren",
-            "onClick": "echo LOXD_RefreshStateValues($id);"
-        },
-        {
-            "type": "Button",
-            "caption": "Standardbefehl testen",
-            "onClick": "echo LOXD_TestCommand($id);"
-        },
-        {
-            "type": "Button",
-            "caption": "Command-Diagnose",
-            "onClick": "echo LOXD_CommandDiagnostics($id);"
-        },
-        {
-            "type": "Button",
-            "caption": "Befehlsvarianten testen",
-            "onClick": "echo LOXD_TestCommandVariants($id);"
-        },
-        {
-            "type": "Label",
-            "caption": "Sprint 16.5: Command-Diagnose, Details-Auswertung und Befehlsvarianten für Pushbutton/Switch. Varianten-Test nur an ungefährlichen Testgeräten verwenden."
-        }
-    ]
+  "elements": [
+    {
+      "type": "Label",
+      "caption": "Loxone Device. Diese Instanz wird automatisch vom Loxone Gateway erzeugt."
+    }
+  ],
+  "actions": [
+    {
+      "type": "Button",
+      "caption": "Metadaten aktualisieren",
+      "onClick": "echo LOXD_RefreshMetadata($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "Statuswerte aktualisieren",
+      "onClick": "echo LOXD_RefreshStateValues($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "Standardbefehl testen",
+      "onClick": "echo LOXD_TestCommand($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "Command-Diagnose",
+      "onClick": "echo LOXD_ActionDiagnostics($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "Befehlsvarianten testen",
+      "onClick": "echo LOXD_TestCommandVariants($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "Control-Inspector",
+      "onClick": "echo LOXD_InspectControl($id);"
+    },
+    {
+      "type": "Label",
+      "caption": "Sprint 17: Control-Inspector zeigt ControlUUID, ActionUUID, StatesJson, DetailsJson und optional die Live-Definition aus der LoxAPP3."
+    }
+  ]
 }
