@@ -28,12 +28,17 @@
     },
     {
       "type": "Button",
+      "caption": "Zugriffs-Diagnose",
+      "onClick": "echo LOXD_AccessDiagnostics($id);"
+    },
+    {
+      "type": "Button",
       "caption": "Control-Inspector",
       "onClick": "echo LOXD_InspectControl($id);"
     },
     {
       "type": "Label",
-      "caption": "Sprint 17: Control-Inspector zur Diagnose von uuid, uuidAction, states und details."
+      "caption": "Sprint 16: stabilere WebFront-Aktionen, Pushbutton-Reset und Zugriffs-Diagnose für Loxone-Berechtigungen."
     }
   ]
 }

@@ -98,6 +98,14 @@ class LoxoneDevice extends IPSModule
         $controlType = strtolower($this->ReadPropertyString('ControlType'));
         $class = $this->DetectDeviceClass();
 
+        $this->SendDebug('RequestAction', sprintf(
+            'ident=%s value=%s type=%s class=%s',
+            $ident,
+            is_bool($value) ? ($value ? 'true' : 'false') : (string)$value,
+            $controlType,
+            $class
+        ), 0);
+
         if ($ident === 'Display_Switch' || $ident === 'State_active') {
             if ($controlType === 'switch') {
                 if ((bool)$value) {
@@ -105,49 +113,50 @@ class LoxoneDevice extends IPSModule
                 } else {
                     $this->SwitchOff();
                 }
+
+                // Optimistische Anzeige; die LiveEngine korrigiert den echten Zustand.
                 $this->SetValueIfExists('Display_Switch', (bool)$value);
                 $this->SetValueIfExists('State_active', (bool)$value);
                 return;
             }
 
             if ($controlType === 'pushbutton') {
-                $this->Press();
-                $this->SetValueIfExists('Display_Press', false);
+                $this->HandlePulseAction('Display_Press');
                 return;
             }
         }
 
         if ($ident === 'Display_Press') {
-            $this->Press();
-            $this->SetValueIfExists('Display_Press', false);
+            $this->HandlePulseAction('Display_Press');
             return;
         }
 
         if ($ident === 'Display_GatePulse') {
-            // Torsignale sind Impulse. Der WebFront-Schalter wird nach dem Senden
-            // direkt wieder zurückgesetzt; den echten Zustand liefert Loxone über
-            // den Live-Status.
-            $this->Press();
-            $this->SetValueIfExists('Display_GatePulse', false);
+            $this->HandlePulseAction('Display_GatePulse');
             return;
         }
 
         if ($ident === 'Display_AlarmAction') {
-            // Achtung: Alarmaktionen werden nur für importierte Pushbuttons ausgelöst.
-            // Eine zusätzliche Sicherheitsabfrage muss auf WebFront-/Skript-Ebene
-            // erfolgen, falls gewünscht.
-            $this->Press();
-            $this->SetValueIfExists('Display_AlarmAction', false);
+            $this->HandlePulseAction('Display_AlarmAction');
             return;
         }
 
         if ($ident === 'Display_AccessOpen') {
-            $this->Press();
-            $this->SetValueIfExists('Display_AccessOpen', false);
+            $this->HandlePulseAction('Display_AccessOpen');
             return;
         }
 
         throw new Exception('Keine Aktion für ' . $ident . ' verfügbar. Klasse: ' . $class);
+    }
+
+    private function HandlePulseAction(string $displayIdent): void
+    {
+        try {
+            $this->Press();
+        } finally {
+            // Pushbuttons sind Impulse. Der WebFront-Schalter darf nicht auf AN stehen bleiben.
+            $this->SetValueIfExists($displayIdent, false);
+        }
     }
 
     public function SendCommand(string $command)
@@ -269,6 +278,42 @@ class LoxoneDevice extends IPSModule
         $lines[] = 'Antwort 1 bedeutet, dass der Miniserver den Befehl akzeptiert hat. Falls keine sichtbare Aktion erfolgt, ist meist die ActionUUID nicht mit einer sichtbaren Funktion verknüpft oder der Loxone-Baustein ist gesperrt/nicht verdrahtet.';
 
         return implode("\n", $lines);
+    }
+
+    public function AccessDiagnostics()
+    {
+        $gatewayId = $this->ReadPropertyInteger('GatewayID');
+        $controlUuid = $this->ReadPropertyString('ControlUUID');
+        $actionUuid = $this->ReadPropertyString('ActionUUID');
+
+        $lines = [];
+        $lines[] = 'Zugriffs-Diagnose';
+        $lines[] = 'Control: ' . $this->ReadPropertyString('ControlName');
+        $lines[] = 'Typ: ' . $this->ReadPropertyString('ControlType');
+        $lines[] = 'Klasse: ' . $this->HumanDeviceClassLabel($this->DetectDeviceClass());
+        $lines[] = 'GatewayID: ' . (string)$gatewayId;
+        $lines[] = 'ControlUUID: ' . $controlUuid;
+        $lines[] = 'ActionUUID: ' . $actionUuid;
+        $lines[] = '';
+
+        if ($gatewayId <= 0 || !IPS_InstanceExists($gatewayId)) {
+            $lines[] = 'FEHLER: Kein gültiges Gateway hinterlegt.';
+            return implode("
+", $lines);
+        }
+
+        try {
+            $result = LOX_CheckControlAccess($gatewayId, $actionUuid);
+            $lines[] = is_array($result) ? json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) : (string)$result;
+        } catch (Throwable $e) {
+            $lines[] = 'FEHLER: ' . $e->getMessage();
+        }
+
+        $lines[] = '';
+        $lines[] = 'Hinweis: Wenn der Control beim API-Benutzer in LoxAPP3.json nicht unter controls erscheint, muss in Loxone Config für den Benutzer zusätzlich Externer Zugriff für Raum/Kategorie/Funktion gesetzt und auf den Miniserver angewendet werden.';
+
+        return implode("
+", $lines);
     }
 
     public function TestCommandVariants()

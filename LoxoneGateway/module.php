@@ -702,7 +702,7 @@ Fehler: " . count($errors) . "
 
             foreach ($states as $stateName => $stateUuid) {
                 $ident = 'State_' . $this->IdentFromString((string)$stateName);
-                $variableId = @IPS_GetObjectIDByIdent($ident, $instanceId);
+                $variableId = $this->FindObjectIDByIdentRecursive((int)$instanceId, $ident);
                 if ($variableId === false) {
                     continue;
                 }
@@ -722,6 +722,23 @@ Fehler: " . count($errors) . "
 
         ksort($index);
         return $index;
+    }
+
+    private function FindObjectIDByIdentRecursive(int $parentId, string $ident)
+    {
+        foreach (IPS_GetChildrenIDs($parentId) as $childId) {
+            $object = IPS_GetObject($childId);
+            if ((string)($object['ObjectIdent'] ?? '') === $ident) {
+                return (int)$childId;
+            }
+            if ((int)$object['ObjectType'] === 0) {
+                $found = $this->FindObjectIDByIdentRecursive((int)$childId, $ident);
+                if ($found !== false) {
+                    return $found;
+                }
+            }
+        }
+        return false;
     }
 
     private function SetTypedVariableValue(int $variableId, $rawValue): void
@@ -1156,6 +1173,44 @@ Fehler: " . count($errors) . "
     }
 
 
+    public function CheckControlAccess(string $actionUuid)
+    {
+        $actionUuid = trim($actionUuid);
+        if ($actionUuid === '') {
+            throw new RuntimeException('ActionUUID ist leer.');
+        }
+
+        $api = $this->CreateApi();
+        $data = $api->getLoxApp3();
+        $controls = is_array($data['controls'] ?? null) ? $data['controls'] : [];
+        $currentUser = (string)($data['msInfo']['currentUser']['name'] ?? '');
+        $isAdmin = (bool)($data['msInfo']['currentUser']['isAdmin'] ?? false);
+
+        $found = null;
+        foreach ($controls as $uuid => $control) {
+            if (!is_array($control)) {
+                continue;
+            }
+            if ((string)$uuid === $actionUuid || (string)($control['uuidAction'] ?? '') === $actionUuid) {
+                $found = $control;
+                $found['_uuid'] = (string)$uuid;
+                break;
+            }
+        }
+
+        return [
+            'user' => $currentUser,
+            'isAdmin' => $isAdmin,
+            'visibleControls' => count($controls),
+            'searchedActionUUID' => $actionUuid,
+            'foundInLoxAPP3' => $found !== null,
+            'control' => $found,
+            'hint' => $found === null
+                ? 'Der API-Benutzer sieht diesen Control nicht in LoxAPP3.json. In Loxone Config Externer Zugriff für Raum/Kategorie/Funktion aktivieren und auf Miniserver anwenden.'
+                : 'Control ist für den API-Benutzer sichtbar. Wenn Befehle dennoch 403 liefern, Benutzerrechte und Sperrstatus jLocked prüfen.'
+        ];
+    }
+
     public function SendControlCommand(string $actionUuid, string $command)
     {
         $actionUuid = trim($actionUuid);
@@ -1168,8 +1223,22 @@ Fehler: " . count($errors) . "
             throw new RuntimeException('Befehl ist leer.');
         }
 
+        $this->SendDebug('SendControlCommand', 'ActionUUID=' . $actionUuid . ' Command=' . $command, 0);
+
         $api = $this->CreateApi();
-        return $api->sendIoCommandChecked($actionUuid, $command);
+        try {
+            $result = $api->sendIoCommandChecked($actionUuid, $command);
+            $this->SendDebug('SendControlCommand Result', is_array($result) ? json_encode($result, JSON_UNESCAPED_UNICODE) : (string)$result, 0);
+            return $result;
+        } catch (Throwable $e) {
+            $message = $e->getMessage();
+            if (str_contains($message, 'Antwortcode ist 403')) {
+                $message .= "
+Hinweis: 403 bedeutet meistens fehlenden externen Zugriff für den Loxone-Benutzer. Prüfe im Gateway die Zugriffs-Diagnose bzw. in Loxone Config: Benutzer → Funktionen → Externer Zugriff.";
+            }
+            $this->SendDebug('SendControlCommand Error', $message, 0);
+            throw new RuntimeException($message, 0, $e);
+        }
     }
 
     public function TestCommand(string $actionUuid = '', string $command = 'pulse')

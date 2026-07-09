@@ -1,15 +1,25 @@
-# Sprint 17 - Control Inspector
+# SymconLoxone Sprint 16
 
-Diese ZIP enthält **keinen snippets-Ordner**, damit IP-Symcon das Repository nicht als ungültig erkennt.
+Sprint 16 stabilisiert die bidirektionale Bedienung zwischen IP-Symcon und Loxone.
 
-Inhalt:
+## Änderungen
 
-- `LoxoneDevice/form.json` ersetzen
-- Methode aus `LoxoneDevice/INSPECTOR_METHOD.txt` in `LoxoneDevice/module.php` einfügen
+- Pushbutton-Aktionen werden als Impuls behandelt und im WebFront automatisch zurückgesetzt.
+- Switch-Aktionen senden weiterhin `on` / `off`.
+- Neue Zugriffs-Diagnose in Loxone Device zur Prüfung, ob der verwendete Loxone-Benutzer den Control in `LoxAPP3.json` sieht.
+- Gateway gibt bei Loxone `403` eine klare Berechtigungsdiagnose aus.
+- State-Index im Gateway findet technische State-Variablen nun auch, wenn sie unter `Technik` liegen.
+- Debug-Ausgaben für `RequestAction` und `SendControlCommand` verbessert.
 
-Danach:
+## Nach dem Update
 
-1. Commit & Push
-2. Module aktualisieren
-3. Geräteinstanz öffnen
-4. Button **Control-Inspector** ausführen
+1. Dateien ins Repository übernehmen.
+2. Commit & Push.
+3. In IP-Symcon das Modul aktualisieren.
+4. Gateway: `Geräte-Instanzen erzeugen / aktualisieren`.
+5. Betroffene Geräteinstanzen einmal öffnen und `Übernehmen`.
+6. Bei Problemen im Gerät `Zugriffs-Diagnose` ausführen.
+
+## Hinweis zu 403
+
+Wenn Loxone auf `/jdev/sps/io/<uuidAction>/<command>` mit `403` antwortet, sieht der verwendete API-Benutzer den Control meistens nicht in `LoxAPP3.json`. In Loxone Config muss dann beim Benutzer unter Funktionen der externe Zugriff für Raum, Kategorie und Funktion gesetzt und auf den Miniserver angewendet werden.
