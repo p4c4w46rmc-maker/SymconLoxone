@@ -38,7 +38,7 @@
     },
     {
       "type": "Label",
-      "caption": "Sprint 16: stabilere WebFront-Aktionen, Pushbutton-Reset und Zugriffs-Diagnose für Loxone-Berechtigungen."
+      "caption": "Sprint 17: Pushbutton/Switch stabil, Zugriffsdiagnose, Control-Inspector und Gateway-Command-Status."
     }
   ]
 }

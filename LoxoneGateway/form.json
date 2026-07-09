@@ -33,6 +33,13 @@
       "caption": "Polling-Intervall Sekunden (0 = aus)",
       "minimum": 0,
       "maximum": 3600
+    },
+    {
+      "type": "NumberSpinner",
+      "name": "LiveEngineInterval",
+      "caption": "LiveEngine-Zyklus Sekunden (0 = aus)",
+      "minimum": 0,
+      "maximum": 3600
     }
   ],
   "actions": [
@@ -107,8 +114,13 @@
       "onClick": "echo LOX_TestWebSocketDecodeProbe($id);"
     },
     {
+      "type": "Button",
+      "caption": "LiveEngine Automatik-Zyklus testen",
+      "onClick": "echo LOX_RunLiveEngineCycle($id);"
+    },
+    {
       "type": "Label",
-      "caption": "Sprint 12: Erste Steuerbefehle. Switch/Pushbutton können über Loxone Device ausgelöst werden."
+      "caption": "Sprint 17: LiveEngine-Zyklus mit WebSocket-Decoder, Überlappungsschutz, Statusvariablen und Command-Status."
     }
   ]
 }

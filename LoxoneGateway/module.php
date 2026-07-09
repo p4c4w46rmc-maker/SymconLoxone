@@ -18,8 +18,10 @@ class LoxoneGateway extends IPSModule
         $this->RegisterPropertyString('Username', '');
         $this->RegisterPropertyString('Password', '');
         $this->RegisterPropertyInteger('PollingInterval', 0);
+        $this->RegisterPropertyInteger('LiveEngineInterval', 0);
 
         $this->RegisterTimer('RefreshStates', 0, 'LOX_RefreshAllDeviceStates($_IPS["TARGET"]);');
+        $this->RegisterTimer('LiveEngineCycle', 0, 'LOX_RunLiveEngineCycle($_IPS["TARGET"]);');
 
         $this->RegisterVariableString('Version', 'Miniserver Version', '', 10);
         $this->RegisterVariableString('ProjectName', 'Projektname', '', 20);
@@ -41,6 +43,9 @@ class LoxoneGateway extends IPSModule
         $this->RegisterVariableInteger('LiveProbeFrames', 'LiveEngine Probe Frames', '', 170);
         $this->RegisterVariableInteger('LiveProbeBinaryFrames', 'LiveEngine Binary Frames', '', 180);
         $this->RegisterVariableString('LastLiveProbeSummary', 'Letzte LiveEngine Probe', '', 190);
+        $this->RegisterVariableString('LiveEngineAutoStatus', 'LiveEngine Automatik', '', 200);
+        $this->RegisterVariableInteger('LiveEngineAppliedValues', 'LiveEngine angewendete Werte', '', 210);
+        $this->RegisterVariableString('LastCommandResult', 'Letztes Kommando', '', 220);
     }
 
     public function ApplyChanges()
@@ -59,6 +64,12 @@ class LoxoneGateway extends IPSModule
         $this->SetSummary(sprintf('%s://%s:%d', $scheme, $host, $port));
         $interval = $this->ReadPropertyInteger('PollingInterval');
         $this->SetTimerInterval('RefreshStates', max(0, $interval) * 1000);
+
+        $liveInterval = $this->ReadPropertyInteger('LiveEngineInterval');
+        // Sprint 17: Ein automatischer LiveEngine-Zyklus kann optional aktiviert werden.
+        // 0 = aus. Für produktive Tests nicht zu niedrig einstellen, da jeder Zyklus
+        // kurz eine WebSocket-Verbindung öffnet, authentifiziert und Liveframes auswertet.
+        $this->SetTimerInterval('LiveEngineCycle', max(0, $liveInterval) * 1000);
 
         $this->SetStatus(102);
     }
@@ -1069,6 +1080,37 @@ Fehler: " . count($errors) . "
 
 
 
+    public function RunLiveEngineCycle()
+    {
+        // Sprint 17: automatischer LiveEngine-Zyklus.
+        // Dieser Zyklus nutzt die bereits funktionierende WebSocket-Decoder-Pipeline,
+        // läuft aber mit Sperre, damit sich Timeraufrufe nicht überlappen.
+        if ($this->GetBuffer('LiveEngineBusy') === '1') {
+            $this->SetValue('LiveEngineAutoStatus', date('Y-m-d H:i:s') . ' übersprungen: vorheriger Zyklus läuft noch');
+            return 'LiveEngine-Zyklus übersprungen: vorheriger Zyklus läuft noch.';
+        }
+
+        $this->SetBuffer('LiveEngineBusy', '1');
+        try {
+            $this->SetValue('LiveEngineAutoStatus', date('Y-m-d H:i:s') . ' Zyklus gestartet');
+            $summary = $this->TestWebSocketDecodeProbe();
+
+            $applied = 0;
+            if (preg_match('/In Symcon angewendet:\s*(\d+)/', $summary, $matches) === 1) {
+                $applied = (int)$matches[1];
+                $this->SetValue('LiveEngineAppliedValues', $applied);
+            }
+
+            $this->SetValue('LiveEngineAutoStatus', date('Y-m-d H:i:s') . ' Zyklus OK, angewendet: ' . $applied);
+            return "LiveEngine-Zyklus abgeschlossen\n" . $summary;
+        } catch (Throwable $e) {
+            $this->SetValue('LiveEngineAutoStatus', date('Y-m-d H:i:s') . ' Fehler: ' . $e->getMessage());
+            return 'LiveEngine-Zyklus Fehler: ' . $e->getMessage();
+        } finally {
+            $this->SetBuffer('LiveEngineBusy', '0');
+        }
+    }
+
     public function TestWebSocketDecodeProbe()
     {
         try {
@@ -1228,7 +1270,9 @@ Fehler: " . count($errors) . "
         $api = $this->CreateApi();
         try {
             $result = $api->sendIoCommandChecked($actionUuid, $command);
-            $this->SendDebug('SendControlCommand Result', is_array($result) ? json_encode($result, JSON_UNESCAPED_UNICODE) : (string)$result, 0);
+            $resultText = is_array($result) ? json_encode($result, JSON_UNESCAPED_UNICODE) : (string)$result;
+            $this->SetValue('LastCommandResult', date('Y-m-d H:i:s') . ' ' . $actionUuid . '/' . $command . ' => ' . $resultText);
+            $this->SendDebug('SendControlCommand Result', $resultText, 0);
             return $result;
         } catch (Throwable $e) {
             $message = $e->getMessage();
